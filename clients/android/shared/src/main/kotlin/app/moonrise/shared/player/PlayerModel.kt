@@ -39,6 +39,7 @@ import app.moonrise.core.PlaybackProblem
 import app.moonrise.core.unplayableProblem
 import app.moonrise.core.Quality
 import app.moonrise.core.RecoveryTries
+import app.moonrise.core.StreamRouteRules
 import app.moonrise.core.ReportEvent
 import app.moonrise.core.Segment
 import app.moonrise.core.SegmentKind
@@ -550,6 +551,7 @@ class PlayerModel(
         }
         val master = api.masterUrl(offer) ?: run { error = "The server gave no stream."; return }
         r.master = master
+        streamRoute = ServerReach.route
         offer.mediaSourceId?.let { playingVersion = it; wantedVersion = it }
         offer.duration?.takeIf { it > 0 }?.let { duration = it }
         playMethod = when (offer.method) {
@@ -1550,9 +1552,30 @@ class PlayerModel(
     // and quality, and plays it, paused or playing as before. It gives up after a minute
     // without the server, or when the stream keeps failing.
 
+    /** The route the stream was opened on (its address holds it), and when it last moved or asked . */
+    private var streamRoute: app.moonrise.core.Route? = null
+    private var routeMovedAt = 0L
+    private var routeAskedAt = 0L
+
     private fun watchdogTick(p: ExoPlayer) {
         if (run == null || recovering || failure != null) { stuckSince = null; return }
         if (run?.local == true) { localWatch(p); return }
+        // A stream holds the address of the route it was opened on: when the route changes (home
+        // to the tailnet, or back), it moves (`StreamRouteRules`).
+        val now = System.currentTimeMillis()
+        val stalled = stuckSince?.let { (now - it) / 1000.0 } ?: 0.0
+        val to = ServerReach.route
+        if (p.playbackState != Player.STATE_ENDED && StreamRouteRules.shouldMove(streamRoute, to, stalled,
+                routeSettledFor = (now - ServerReach.routeChangedAt) / 1000.0, sinceLastMove = (now - routeMovedAt) / 1000.0)) {
+            routeMovedAt = now
+            recover("the route changed to ${to?.label}", counts = false)
+            return
+        }
+        // Stalled with no word of a change: the router only looks when told something happened.
+        if (StreamRouteRules.shouldAskForRoute(stalled, sinceLastAsked = (now - routeAskedAt) / 1000.0)) {
+            routeAskedAt = now
+            ServerReach.nudge()
+        }
         val t = p.currentPosition / 1000.0
         val moving = kotlin.math.abs(t - lastTick) > 0.05
         lastTick = t
@@ -1617,9 +1640,10 @@ class PlayerModel(
     }
 
     /** [decoder]: the failure that asks for this try was the TV's decoder refusing the stream. */
-    private fun recover(why: String, failure: Boolean = false, decoder: Boolean = false) {
+    /** [counts]: a try towards giving up (a move to another route isn't). */
+    private fun recover(why: String, failure: Boolean = false, decoder: Boolean = false, counts: Boolean = true) {
         if (run == null || recovering || run?.local == true) return
-        val stop = recoveryTries.next(everReady, decoder)
+        val stop = if (counts) recoveryTries.next(everReady, decoder) else null
         val p = player
         val pos = skipTarget ?: (if (currentTime > 0.5) currentTime else position ?: 0.0)
         // As the viewer left it: an error doesn't turn a pause into play.
@@ -1652,7 +1676,9 @@ class PlayerModel(
         val began = System.currentTimeMillis()
         var wait = 1000L
         while (scope.isActive && recovering && run != null) {
-            val reachable = withContext(Dispatchers.IO) { runCatching { api.info() }.isSuccess }
+            // Through the router: away from home the server answers on another route.
+            ServerReach.refresh()
+            val reachable = ServerReach.reachable && withContext(Dispatchers.IO) { runCatching { api.info() }.isSuccess }
             if (!recovering) return
             if (reachable) {
                 Log.i(TAG) { "recovery: server reachable, new session at ${fmt(recoveryPosition)}" }

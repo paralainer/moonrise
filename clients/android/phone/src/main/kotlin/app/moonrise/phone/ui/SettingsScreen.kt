@@ -47,10 +47,17 @@ import app.moonrise.core.SkipMode
 import app.moonrise.phone.BuildConfig
 import app.moonrise.shared.AppSettings
 import app.moonrise.shared.Session
+import app.moonrise.shared.downloads.ServerReach
+import app.moonrise.shared.remote.Tailscale
+import app.moonrise.core.TailscaleState
+import androidx.compose.material.icons.automirrored.outlined.Login
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.foundation.layout.size
 
 /**
  * Settings (`SettingsView`, iPhone), a page over the tabs: the server (name, address, who is
- * signed in), Change Server and Sign Out; then this device's Playback, Skip Intros & Credits,
+ * signed in, the connection), Change Server and Sign Out; Remote Access (when built with
+ * Tailscale); then this device's Playback, Skip Intros & Credits,
  * Audio and Subtitles; the version.
  */
 @Composable
@@ -99,9 +106,11 @@ fun SettingsScreen(onClose: () -> Unit, signedOut: () -> Unit) {
             FormSection("Server", footer = if (admin) "Libraries, accounts, the server's services (TMDB, OpenSubtitles, AI matching), transcoding and preparing files are set in Manage Server, for everyone who uses this server. The settings below are for this device only." else null) {
                 Value("Name", serverName ?: "—")
                 FormDivider()
-                Value("Address", api?.baseUrl?.toString()?.removePrefix("http://")?.trimEnd('/') ?: "—")
+                Value("Address", Session.homeAddress?.toString()?.removePrefix("http://")?.trimEnd('/') ?: "—")
                 FormDivider()
                 Value("Signed In As", user ?: "—")
+                FormDivider()
+                Value("Connection", ServerReach.route?.label ?: "—")
                 FormDivider()
                 FormRow(onClick = { pages.push { ApproveDevicePage(back = pages::pop) } }) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -123,6 +132,7 @@ fun SettingsScreen(onClose: () -> Unit, signedOut: () -> Unit) {
                 FormDivider()
                 FormRow(onClick = { confirm = "signout" }) { Action("Sign Out", Icons.AutoMirrored.Outlined.Logout, destructive = true) }
             }
+            if (Tailscale.isSupported) RemoteAccessSection()
             FormSection("Playback", footer = "Titles start at this quality; you can pick another in the player.") {
                 Choice("Streaming Quality", AppSettings.streamingQuality, Quality.all.map { it.label to it.label }) { AppSettings.chooseStreamingQuality(it) }
                 FormDivider()
@@ -238,6 +248,54 @@ private fun Toggle(label: String, on: Boolean, set: (Boolean) -> Unit) {
             Switch(on, set, modifier = Modifier.height(24.dp), colors = SwitchDefaults.colors(checkedTrackColor = Theme.green, checkedThumbColor = Color.White))
         }
     }
+}
+
+/**
+ * Remote Access (`TailscaleSection`): Connect Through Tailscale, then the sign-in in the browser,
+ * the node's state and Sign Out of Tailscale.
+ */
+@Composable
+private fun RemoteAccessSection() {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    FormSection("Remote Access", footer = "Moonrise joins your tailnet as its own device, so your home server is reachable away from home without the Tailscale app or a VPN. At home it uses the local network directly.") {
+        Toggle("Connect Through Tailscale", Tailscale.enabled) { Tailscale.enabled = it }
+        if (Tailscale.enabled) {
+            FormDivider()
+            when (val st = Tailscale.state) {
+                TailscaleState.Off, TailscaleState.Starting -> Busy("Starting…")
+                is TailscaleState.NeedsLogin ->
+                    if (st.url != null) FormRow(onClick = { openUrl(context, st.url!!) }) { Action("Sign In to Tailscale", Icons.AutoMirrored.Outlined.Login) }
+                    else Busy("Preparing sign-in…")
+                is TailscaleState.Running -> {
+                    Value("Status", "Connected · ${st.ip}")
+                    FormDivider()
+                    FormRow(onClick = { Tailscale.signOut() }) { Action("Sign Out of Tailscale", Icons.AutoMirrored.Outlined.Logout, destructive = true) }
+                }
+                is TailscaleState.Failed -> {
+                    FormRow { Text(st.message, style = Type.body, color = Theme.destructive) }
+                    FormDivider()
+                    FormRow(onClick = { Tailscale.restart() }) { Action("Retry", Icons.Outlined.Refresh) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun Busy(label: String) {
+    FormRow {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, style = Type.body, color = Color.White, modifier = Modifier.weight(1f))
+            androidx.compose.material3.CircularProgressIndicator(color = Theme.secondaryText, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+/** Opens [url] in the browser (Tailscale's sign-in page). */
+fun openUrl(context: android.content.Context, url: String) {
+    runCatching {
+        context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+    }.onFailure { app.moonrise.shared.Log.w("Moonrise", "no browser for the sign-in page") }
 }
 
 @Composable

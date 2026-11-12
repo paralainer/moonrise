@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -441,7 +442,7 @@ private fun LibraryGrid(state: LibraryState, open: (Item) -> Unit, atTop: (Boole
             val err = state.error
             if (err != null && state.items.isEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }, key = "error") {
-                    ErrorPane(err, onRetry = { state.reloads++ }, modifier = Modifier.height(300.dp))
+                    ErrorPane(err, onRetry = { state.reloads++ }, modifier = Modifier.heightIn(min = 300.dp))
                 }
             } else if (state.items.isEmpty() && !state.loading && state.facets != null) {
                 item(span = { GridItemSpan(maxLineSpan) }, key = "empty") {
@@ -563,7 +564,7 @@ private fun CategoryPage(
                 }
             }
             error?.let { e ->
-                item(span = { GridItemSpan(maxLineSpan) }, key = "error") { ErrorPane(e, onRetry = { reloads++ }, modifier = Modifier.height(300.dp)) }
+                item(span = { GridItemSpan(maxLineSpan) }, key = "error") { ErrorPane(e, onRetry = { reloads++ }, modifier = Modifier.heightIn(min = 300.dp)) }
             }
             itemsIndexed(tiles, key = { _, t -> t.id }) { i, t ->
                 val picked = state.pickedTile?.takeIf { id -> tiles.any { it.id == id } }

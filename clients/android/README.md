@@ -12,6 +12,7 @@ This folder is self-contained: it builds on its own and can move as a whole.
 | `shared/` | What the Android apps share beyond `core`, with Android classes but no screens: the signed-in server (`Session`), this device's settings (`AppSettings`), servers found on the network, a title page's data (`DetailsState`), the sign-in code's QR and the player (`PlayerModel`: Media3, the server's sessions, tracks, segments and reports). |
 | `tv/` | The TV app: sign-in, Home, title pages, the player's screens and the home screen's Watch Next row. |
 | `phone/` | The phone app, which follows the iPhone app (see [The phone app](#the-phone-app)). |
+| `tailscale/` | Remote access: a small Go package over Tailscale's `tsnet`, bound to Kotlin with gomobile into `vendor/moonrise-tailscale.aar` (see [Remote access](#remote-access-tailscale)). |
 | `tools/` | `artwork.sh`: the icon and banner from the Apple TV app's artwork. |
 
 ## Build
@@ -20,7 +21,7 @@ Only Docker is needed. From the repository root:
 
 ```sh
 clients/android/build.sh           # debug APK: clients/android/tv/build/outputs/apk/debug/tv-debug.apk
-clients/android/build.sh test      # core's unit tests
+clients/android/build.sh test      # core's unit tests, and a build without Tailscale
 clients/android/build.sh --shell   # a shell in the build container
 clients/android/build.sh <tasks>   # any Gradle tasks, e.g. :tv:assembleRelease
 ```
@@ -36,6 +37,38 @@ and the Gradle distribution are pinned by checksum, and the image is rebuilt by 
 
 Remove both volumes to start from scratch. Removing the Gradle volume makes a new debug key, and
 the next install then needs the old app uninstalled first.
+
+## Remote access (Tailscale)
+
+Both apps can reach the server away from home through Tailscale, built in as on the Apple apps
+([docs/remote-access.md](../../docs/remote-access.md)): **Settings → Remote Access → Connect Through
+Tailscale**. The app runs its own Tailscale node in userspace (no Tailscale app, and not Android's
+VPN slot) and joins the tailnet as its own device (`moonrise-android`, `moonrise-androidtv`). The
+phone signs in in the browser; the TV shows the sign-in page as a QR code and its address.
+
+- **The library:** `scripts/build-tailscale-android.sh` (Docker only) builds `tailscale/` into
+  `vendor/moonrise-tailscale.aar` for arm, arm64 and x86_64 (`TS_ANDROID_TARGETS` for others, e.g.
+  `android/386` for an x86 TV emulator), after running its Go tests. It is git-ignored; `shared`
+  includes it (`src/tailscale`) when it is there, and otherwise builds `src/notailscale`: no Remote
+  Access section and no node. `-Pmoonrise.tailscale=false` leaves it out on purpose; `build.sh
+  test` compiles that build too. It adds about 22 MB per ABI to an APK.
+- **The route** (`ServerReach`, the rules in `core`'s `Routing.kt`, as the Apple apps'
+  `ConnectionRouter`): the home address first; when it doesn't answer and the node is up, the
+  server on the tailnet (the host it was found at before, then peers named like it), through a
+  local forwarder on `127.0.0.1` that the HTTP clients and the player use like any address, and
+  only when it is the same server (its id). `Session.api.baseUrl` follows the route; requests wait
+  for the first check of a launch. Checked again when the network changes, the app comes to the
+  front, and every 30 s (5 s while the server can't be reached).
+- **Playback:** a stream opened at home moves to the tailnet as soon as the route changes, and one
+  on the tailnet moves home once it stalls (`StreamRouteRules`).
+- **When the server can't be reached,** the screens say why and offer what helps: Connect with
+  Tailscale, Sign In to Tailscale (the QR code on a TV), Restart Tailscale.
+- **Logs:** `adb logcat -s MoonriseTS Moonrise` (debug builds): the node's state and, with its
+  own lines, what it does; `route: … -> …` for each route change. The node sends no logs to
+  Tailscale.
+- **Test seams** (debug builds): `--es tsauthkey <auth key>` turns it on and signs in with the key
+  (an ephemeral device, no browser), `--ez forcetailnet true` (until `false`) skips the home
+  address, so the tailnet route can be tried at home.
 
 ## Two apps: Moonrise and Moonrise Dev
 
@@ -85,7 +118,8 @@ clients/android/adb.sh stop                          # stop the adb server conta
 
 ```sh
 MOONRISE_ANDROID_SIGNING=~/.config/moonrise/signing.properties clients/android/build.sh release
-# → clients/android/tv/build/outputs/apk/release/tv-release.apk, checked with apksigner
+# → clients/android/tv/build/outputs/apk/release/tv-<abi>-release.apk and tv-universal-release.apk
+MOONRISE_ANDROID_SIGNING=… clients/android/build.sh phone-release   # the phone app: phone/…/phone-<abi>-release.apk
 ```
 
 The release build is shrunk and optimised by R8 (much smoother on a TV than a debug build) and
@@ -100,8 +134,16 @@ keyPassword=…                        # a PKCS12 store: the same as storePasswo
 
 `build.sh` mounts the file's folder read-only into the build container. Gradle also reads
 `MOONRISE_ANDROID_SIGNING` directly, or a git-ignored `clients/android/signing.properties`;
-without either, `:tv:assembleRelease` makes an unsigned `tv-release-unsigned.apk` and
-`build.sh release` stops. To make a key:
+without either, `:tv:assembleRelease` makes unsigned `*-release-unsigned.apk` files and
+`build.sh release` stops.
+
+Release builds are split by CPU type (ABI): `armeabi-v7a`, `arm64-v8a` and `x86_64`, each with
+only its own native libraries (Tailscale's and the FFmpeg audio decoders'), and a universal APK
+with all of them. `scripts/deploy-android-tv.sh` installs the one for the device's
+`ro.product.cpu.abilist` (its first entry with an APK, else the universal one; a TV with a 64-bit
+CPU and a 32-bit system lists `armeabi-v7a` first): `scripts/android-apk.sh`. `APP=phone` does the
+same for the phone app (`APP=phone ANDROID_SERIAL=<serial> ADB_PORT=5037
+scripts/deploy-android-tv.sh`). Debug builds stay one APK. To make a key:
 
 ```sh
 keytool -genkeypair -keystore moonrise-release.jks -storetype PKCS12 -alias moonrise \
@@ -220,7 +262,7 @@ the display, so a screenshot of the player is blank.
   and marks the title played near its end. Marks use `PUT`/`DELETE /v1/items/{id}/played`, and a
   version picked on the title page is remembered for every device (`PUT /v1/items/{id}/version`).
 - **Settings:** the server (name, address, who is signed in, connection), Change Server and Sign
-  Out (both revoke this device's token), Streaming Quality, Skip Back and Skip Forward, Play Next
+  Out (both revoke this device's token), Remote Access (Tailscale, above), Streaming Quality, Skip Back and Skip Forward, Play Next
   Episode Automatically, Skip Intros & Credits (per kind: Skip Automatically, Show Skip Button or
   Off; the auto-skip countdown; Use Online Databases), the preferred audio language, and
   subtitles (preferred language, Turn On Automatically, size and background box).

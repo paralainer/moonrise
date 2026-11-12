@@ -46,7 +46,7 @@ server image isn't published: for now you build the server and the apps from thi
   watched state per user, the same on every device; invite family members.
 - **Folders on the server or on network shares** (SMB: a NAS, a Windows PC): the server reads
   them itself, no mounting.
-- **Away from home** with Tailscale, built into the Apple apps (no VPN app needed).
+- **Away from home** with Tailscale, built into the Apple and Android apps (no VPN app needed).
 - **Set up and managed from the app**: libraries, users and devices, services, transcoding
   hardware, activity, logs. There is no web admin to learn.
 - **Try it without a server**: the Apple apps' welcome screen has *Try the Demo*, four open movies
@@ -108,7 +108,7 @@ Moonrise needs nothing but your videos. Each of these makes it better, and each 
 | TMDB (built into release builds; your own key optional) | Posters, plots, cast, episode names | Names from files and folders, NFO files, local artwork, a frame of the video |
 | OpenSubtitles (built-in key; your account optional) | Subtitle search in the player: 5 downloads a day, 20 with a free account | Subtitles in and next to your files still play |
 | An LLM (Anthropic, OpenAI, your ChatGPT plan, Gemini, OpenRouter, or your own model server: Ollama, LM Studio, llama.cpp, any OpenAI-compatible endpoint) | Recognises unusual or transliterated file names | Name, year and runtime matching; the rest wait in Fix Match |
-| Tailscale | The Apple apps reach the server from anywhere | Home network only (downloads play anywhere) |
+| Tailscale | The Apple and Android apps reach the server from anywhere | Home network only (downloads play anywhere) |
 | GPU (NVIDIA, Intel, AMD; a Mac's VideoToolbox) | Fast transcoding, 4K | Transcoding on the CPU (up to 1080p; 720p on a Raspberry Pi) |
 | OMDb (your free key, entered in the app and kept on the server) | IMDb / Rotten Tomatoes / Metacritic scores | TMDB's rating |
 

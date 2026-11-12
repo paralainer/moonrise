@@ -193,12 +193,19 @@ command-line tools; Gradle, AGP and Kotlin from the wrapper and the version cata
 ```sh
 clients/android/build.sh            # Android TV, debug: tv/build/outputs/apk/debug/tv-debug.apk
 clients/android/build.sh phone      # phones and tablets, debug: phone/build/outputs/apk/debug/phone-debug.apk
-clients/android/build.sh test       # the unit tests (core, against api/)
+clients/android/build.sh test       # the unit tests (core, against api/), and a build without Tailscale
 scripts/deploy-android-tv.sh <tv-address>   # build and install on a TV over adb (DEV=1: the debug app)
 ```
 
+**Optional: Tailscale** for remote access. `scripts/build-tailscale-android.sh` builds
+`clients/android/vendor/moonrise-tailscale.aar` (git-ignored) from `clients/android/tailscale`, a
+small Go package over Tailscale's `tsnet`, with gomobile, in Docker (Go and the NDK are fetched and
+pinned by the script; the first run takes a while). Builds after that include it; without it the
+apps build and run without the Remote Access section, and `-Pmoonrise.tailscale=false` leaves it
+out on purpose. See [remote-access.md](remote-access.md).
+
 The debug builds are **Moonrise Dev** (`app.moonrise.tv.dev`, `app.moonrise.phone.dev`), apps of
-their own beside the release builds. A release build (`clients/android/build.sh release`) needs your
+their own beside the release builds. A release build (`clients/android/build.sh release`, `phone-release`; one APK per CPU type) needs your
 own signing key; installing on a device, the test seams and the signing are in
 [clients/android/README.md](../clients/android/README.md).
 

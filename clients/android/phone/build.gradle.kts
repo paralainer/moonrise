@@ -43,6 +43,19 @@ android {
         }
     }
 
+    // Release builds: one APK per CPU type, so a device gets only its own native libraries
+    // (Tailscale's and the FFmpeg audio decoders'), plus a universal APK for anything else.
+    // scripts/deploy-android-tv.sh picks the one for the device (`apkForAbis` in android-apk.sh).
+    // Debug builds stay a single APK.
+    splits {
+        abi {
+            isEnable = gradle.startParameter.taskNames.any { it.contains("Release", ignoreCase = true) }
+            reset()
+            include("armeabi-v7a", "arm64-v8a", "x86_64")
+            isUniversalApk = true
+        }
+    }
+
     buildTypes {
         // The debug build is "Moonrise Dev" (app.moonrise.phone.dev), its own app beside the release
         // one: its own sign-in and settings, its name and an amber icon from src/debug/res.

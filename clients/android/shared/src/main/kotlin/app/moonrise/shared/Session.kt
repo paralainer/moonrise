@@ -12,6 +12,7 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import app.moonrise.core.MoonriseApi
+import app.moonrise.shared.downloads.ServerReach
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -49,7 +50,17 @@ object Session {
             ?.takeIf { it.isNotBlank() } ?: Build.MODEL
 
     var api: MoonriseApi? = null
-        private set
+        private set(v) {
+            v?.awaitRoute = routeGate
+            field = v
+        }
+
+    /** What the server's client waits for before each request: the route to it (`ServerReach`). */
+    var routeGate: (suspend () -> Unit)? = null
+        set(v) {
+            field = v
+            api?.awaitRoute = v
+        }
 
     val main = android.os.Handler(android.os.Looper.getMainLooper())
 
@@ -81,6 +92,7 @@ object Session {
         val token = client.token ?: return
         prefs().edit().putString("address", client.baseUrl.toString()).putString("token_sealed", TokenCipher.seal(token)).apply()
         api = client
+        ServerReach.signedIn()
         WatchHooks.changed("signed in")
     }
 
@@ -94,6 +106,12 @@ object Session {
     }
 
     val lastAddress: String? get() = prefs().getString("address", null)
+
+    /**
+     * The server's address on the home network, as signed in. `api.baseUrl` is where requests go
+     * now, which away from home is a local forwarder to the server on the tailnet.
+     */
+    val homeAddress: okhttp3.HttpUrl? get() = lastAddress?.let { MoonriseApi.normalize(it) }
 
     /** Change Server: signs out and forgets the address, so sign-in starts with the servers found. */
     fun changeServer() {

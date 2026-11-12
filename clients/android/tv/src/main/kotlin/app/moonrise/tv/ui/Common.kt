@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
@@ -29,6 +30,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -177,17 +179,52 @@ fun ConfirmDialog(title: String, message: String, action: String, onConfirm: () 
 @Composable
 fun ErrorPane(message: String, onRetry: () -> Unit, modifier: Modifier = Modifier, signIn: (() -> Unit)? = null) {
     val retry = remember { FocusRequester() }
+    // Away from home: what Tailscale needs (`ConnectionProblemView`), when that is why.
+    val problem = app.moonrise.shared.downloads.ServerReach.problem
+    // While it is that, the words follow it (Tailscale turned on, signed in…), not the failed load's.
+    val shown = problem?.let { app.moonrise.shared.connectionProblemText(tv = true) } ?: message
     Column(modifier.fillMaxSize().padding(Theme.margin), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
         Text("⚠", fontSize = 30.sp, color = Theme.secondaryText)
         Spacer(Modifier.height(10.dp))
-        Text(message, color = Theme.secondaryText, textAlign = TextAlign.Center, fontSize = 15.sp, modifier = Modifier.widthIn(max = 520.dp))
+        Text(shown, color = Theme.secondaryText, textAlign = TextAlign.Center, fontSize = 15.sp, modifier = Modifier.widthIn(max = 520.dp))
+        if (problem is app.moonrise.core.ConnectionProblem.TailscaleNeedsLogin && problem.url != null) {
+            Spacer(Modifier.height(14.dp))
+            TailscaleSignIn(problem.url!!)
+        }
         Spacer(Modifier.height(18.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             GlassButton(onClick = onRetry, modifier = Modifier.focusRequester(retry), name = "Retry") { Text("Retry") }
             if (signIn != null) GlassButton(onClick = signIn) { Text("Sign In Again") }
+            when (problem) {
+                app.moonrise.core.ConnectionProblem.TailscaleOff ->
+                    GlassButton(onClick = { app.moonrise.shared.remote.Tailscale.enabled = true }, name = "Connect with Tailscale") { Text("Connect with Tailscale") }
+                is app.moonrise.core.ConnectionProblem.TailscaleFailed ->
+                    GlassButton(onClick = { app.moonrise.shared.remote.Tailscale.restart() }, name = "Restart Tailscale") { Text("Restart Tailscale") }
+                else -> {}
+            }
         }
     }
-    LaunchedEffect(message) { delay(50); runCatching { retry.requestFocus() } }
+    LaunchedEffect(shown) { delay(50); runCatching { retry.requestFocus() } }
+}
+
+/**
+ * Tailscale's sign-in on a TV: the page's QR code to scan with a phone, and its address to open on
+ * any device (the TV has no browser to sign in with).
+ */
+@Composable
+fun TailscaleSignIn(url: String, modifier: Modifier = Modifier) {
+    val qr = remember(url) { app.moonrise.shared.qrBitmap(url, 320).asImageBitmap() }
+    Row(modifier.widthIn(max = 620.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+        Box(Modifier.size(140.dp).background(Color.White, RoundedCornerShape(8.dp)).padding(6.dp)) {
+            androidx.compose.foundation.Image(qr, contentDescription = "QR code of Tailscale's sign-in page", modifier = Modifier.fillMaxSize())
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Sign In to Tailscale", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+            Text("Scan the code with your phone, or open this page on any device, and sign in to the tailnet your server is on:",
+                fontSize = 13.sp, lineHeight = 17.sp, color = Theme.secondaryText)
+            Text(url.removePrefix("https://"), fontSize = 14.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+        }
+    }
 }
 
 /** A titled row of lockups (`TVShelf`): the title at the margin, the lockups scrolling sideways. */
