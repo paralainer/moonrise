@@ -1,0 +1,739 @@
+# Client -- high-level SMB2 API
+
+Entry point for most users. `SmbClient` wraps `Connection` + `Session` and provides convenience methods for file operations.
+
+## Key files
+
+| File | Purpose |
+|---|---|
+| `mod.rs` | `SmbClient`, `ClientConfig`, `connect()` shorthand |
+| `connections.rs` | `Connections` -- the primary connection plus the DFS pool, and `for_tree`, the one lookup from a `Tree` to its connection |
+| `connection.rs` | `Connection` -- message sequencing, response deadline, signing, encryption, `execute` / `execute_compound` |
+| `credits.rs` | `CreditPool` -- the connection-wide credit budget and the send-side gate |
+| `session.rs` | `Session::setup()` -- NTLM auth, key derivation, handing the keys to the connection (`Session` keeps none) |
+| `tree.rs` | `Tree` -- share connection, file CRUD, compound and pipelined I/O |
+| `directory.rs` | `DirectoryReader`: a listing one QUERY_DIRECTORY answer at a time, cancel-safe, closes itself at the end. `Tree::list_directory` collects through it |
+| `stream.rs` | `FileDownload` / `FileReader` (random-access positioned reads) / `FileUpload` / `FileWriter` (owns `Connection` + `Arc<Tree>`, `'static`) / `open_file_writer` / `open_file_reader` -- streaming and positioned I/O |
+| `read_ahead.rs` | `ReadAhead` (the public knob) and `Window`, the pure controller that decides when a transfer sends its next request, for downloads and uploads alike (`Pacing` is what both knobs map onto); `Lateness`, the learned-headroom memory; `DOWNLOAD_CHUNK_SIZE`, `ADAPTIVE_MAX_IN_FLIGHT`, `QUICK_FRAME_BUDGET` |
+| `tuning.rs` | `Tuning`, the window's tunables (headroom, rate measure) behind `Tuning::current()`; crate-private, re-exported as `smb2::__bench` under the unstable `__bench-tuning` feature |
+| `write_behind.rs` | `WriteBehind` (the upload knob), `UPLOAD_CHUNK_SIZE`, the one-frame write cut-off behind `Connection::quick_write_limit`, and what a WRITE's answer measures |
+| `streams.rs` | Named streams on `Tree`: `list_streams`, `read_stream`, `write_stream`, `delete_stream`, plus `fs_attributes`. `Tree::stream_wire_name` is the one place a path and a stream name meet |
+| `xattr.rs` | macOS xattrs on `Tree`, stored as `smbfs` stores them: `get_xattr`, `set_xattr`, `remove_xattr`, `list_xattrs`, `get_xattr_many`, `get_xattr_each`, `set_xattr_many`. The name mapping and the `AFP_AfpInfo` layout. Byte-level: no plists, no tag model |
+| `batch.rs` | The pipelined per-path engine: `run`, `window_for`, `BatchOptions`, `BatchResults` |
+| `write_pipe.rs` | `WritePipe`, the one engine every pipelined upload runs on: window, write budget, dispatch, confirmations, the upload rate hint |
+| `download_tests.rs` | `FileDownload` against the mock: order, short reads, EOF, errors, window bounds, cancel safety, answers out of order, adaptive timing on tokio's paused clock |
+| `upload_tests.rs` | Uploads against the mock: chunk size, the cold window, adaptive timing, fixed windows, the upload rate hint and `quick_write_limit`, every write path pacing alike, `write_chunk` cancel safety |
+| `resume_tests.rs` | Checkpoints and resumes against the mock: the offset moves only after a FLUSH, a dropped checkpoint loses nothing, a short WRITE is an error, the writer open asks for the identity, each resume refusal, and the tail trim at `finish` |
+| `validate_negotiate_tests.rs` | The secure-negotiate answer matrix against a scripted signed 3.0.2 session: match, each mismatched field, `ACCESS_DENIED`, unsigned, a hang-up, the tolerated "not implemented" statuses, 2.1, 3.1.1, and a session that doesn't sign (§ Secure negotiate) |
+| `stale_handle_tests.rs` | Every handle type opened before a reconnect, against a new session that would answer its stale ids: nothing reaches it, and close/abort send nothing |
+| `socket_lifecycle_tests.rs` | When the socket closes, over real loopback sockets: last clone dropped, server hang-up, `mark_dead` |
+| `smol_runtime_tests.rs` | The same connection on smol with no tokio runtime (`--features smol`): a NEGOTIATE + ECHO round trip against a `std::net` fake server, the response deadline, and the socket-lifetime cases. Every spawn, timer, and socket here goes through `crate::rt`; see `src/rt/CLAUDE.md` |
+| `watcher.rs` | `Watcher` -- directory change notifications via CHANGE_NOTIFY long-poll |
+| `pipeline.rs` | `Pipeline` / `Op` / `OpResult` -- batched concurrent operations (the core feature) |
+| `shares.rs` | Share enumeration via IPC$ + srvsvc RPC |
+| `dfs.rs` | DFS referral IOCTL helper, `DfsResolver` with TTL-based referral cache |
+| `dfs_policy.rs` | `DfsTargetPolicy`: whether a referral may send this client's credentials to a different host, and `same_server` |
+| `copy.rs` | Server-side copy (`FSCTL_SRV_COPYCHUNK`): resume-key + copychunk primitives, batched range/whole-file convenience, `ResumeKey` / `CopyChunk` / `ServerSideCopyLimits` public types |
+| `durable.rs` | Durable handles: `open_file_durable` / `reclaim_durable_handle`, `DurableHandle`, `FileIdentity`, and the two-proof rule that makes a resume safe |
+| `resolve.rs` | `Tree::resolve` / `Resolved` (which file the server opened, and its stored name), plus `open_and_name`, the CREATE + name-query compound behind `FileReader` / `FileWriter::resolved_path` |
+| `times.rs` | `FileTimes` (times plus optional `FileAttributes`) and `Tree::set_times` / `set_handle_times` (SET_INFO `FileBasicInformation`); `FileWriter::set_times` sits on the latter. The read side (`FileInfo` from a CREATE response) is `tree.rs` `file_info_from_create` |
+
+## Layering
+
+```
+SmbClient  (owns Connections + Session, stores credentials for reconnect)
+  Connection  (TCP transport, credits, message IDs, signing, encryption)
+    Session   (NTLM auth, key derivation -- setup mutates Connection)
+      Tree    (share-level ops, borrows &mut Connection for each call)
+  Connections  (primary Connection + HashMap<String, ConnectionEntry> for DFS cross-server)
+  dfs_resolver       (DfsResolver with TTL-based referral cache)
+```
+
+All `Tree` methods take `&mut Connection` as a parameter. `SmbClient` methods reach a tree's connection only through `Connections::for_tree` / `for_tree_ref` (primary or DFS extra connection, by the tree's `server` field); the primary alone takes an explicit `primary_mut()`, for calls with no tree. See § DFS.
+
+## Connection and credits
+
+Full model, rationale, and the incident behind it: `credits.rs` module docs.
+
+- **Credits are reserved on send, never on receipt.** `CreditPool` (`credits.rs`) is a `Semaphore`, one permit per unspent credit; `Inner::reserve_credits` takes the charge before the bytes go out, and only a `CreditResponse` grant puts permits back. Accounting on the response instead makes every in-flight request invisible, which is how concurrent streams over one connection out-spend the server's window and get themselves silently cut off.
+- **NEGOTIATE is exempt from the window, never funded by it** (MS-SMB2 § 3.2.5.1.1). A fresh or reset pool holds ZERO permits and NEGOTIATE takes a `CreditReservation::exempt()`. ❌ Don't seed a permit for it: a permit is fungible, so anything racing the handshake spends it instead and sends a frame the server funded nothing for. Servers answer that by silently discarding it, so the client waits out a full response deadline (up to 180 s with the ECHO extension, since the connection itself is fine) for an answer that was never coming.
+- **The budget is per connection**, on the `Arc<Inner>` every clone shares. ❌ Don't add a per-stream credit check: `conn.credits()` is a gauge, not a gate, and second-guessing the pool can only under-send. The pipelined reads queue against `MAX_PIPELINE_WINDOW`, and uploads against their `WriteBehind` window, alone for exactly this reason.
+- **Outstanding WRITE payload is bounded connection-wide** by a second `Semaphore` alongside the credit pool, `DEFAULT_WRITE_BUDGET_BYTES` (32 MiB) worth, moved by the public `Connection::set_write_budget`. An upload's window bounds ONE stream, so N concurrent uploads multiply it: ten files each keeping 32 WRITEs of a 1 MiB `MaxWriteSize` reached 320 MiB queued in-process, ~48 s of latency on a 6.7 MB/s link. Every upload takes it, through `WritePipe`. The permit rides INSIDE the in-flight WRITE future, so drain, abort, cancel, and drop all return it for free. ❌ Never hold it on the pipe.
+- **❌ Never await the write budget while holding a permit you aren't polling** -- the one way to deadlock it. Go through `reserve_write_budget_or_drain`, which is where that ordering lives: take budget only if free, otherwise drain one of your OWN responses, and wait only when you hold nothing. ❌ Don't hand-roll a second copy of it.
+- Budget granule is 64 KiB, so `set_write_budget` rounds up and floors at one. A frame bigger than the whole budget is clamped to it (`Connection::clamped_units`) rather than refused: `acquire_many` for more permits than the semaphore will ever hold waits forever. Growing is immediate; shrinking takes back only permits that are FREE, so `Inner::settle_write_budget` pays the rest down as frames complete, and every reserve calls it first.
+- Multi-credit requests (reads/writes > 64 KB) charge `ceil(payload_size / 65536)` credits and use that many consecutive `MessageId` values. Gaps in `MessageId` sequences cause the server to drop the connection.
+- **A read charges for what it ASKS for, not for what the file weighs.** The charge follows the *expected response* size (MS-SMB2 § 3.2.4.1.2), and `execute_compound` reserves the sum of the chain. `read_file_compound` knows nothing about the file, so it asks for a whole `MaxReadSize`: 130 credits on a server granting 8 MiB (128 for the READ, 1 each for CREATE and CLOSE), which fits three concurrent reads in the 512-credit window however small the files are. The rest park in `reserve_credits`, and a caller that launched ten looks stalled. Pass a size you already have (a directory scan) to `Tree::read_file_compound_sized`, and size the batch with `Connection::credit_capacity_for(bytes)` rather than guessing. `credits::charge_for_payload` is the one formula.
+- **❌ The compound read's truncation guard compares `end_of_file` against what the READ requested, never against `MaxReadSize`.** A file that grew past the caller's `expected_size` between the scan and the read comes back exactly `requested` bytes, which is indistinguishable from a complete read of a smaller file. `Error::FileTooLargeForSingleRead { size, requested }` carries the server's authoritative size, so the caller can retry with it.
+- A short send parks until a grant arrives, bounded so it can't become a starvation hang: nothing outstanding to fund the wait → immediate `Error::CreditStarvation`; a charge wider than the server's known **credit ceiling** → immediate `CreditStarvation` too; connection death → `CreditPool::close` wakes every waiter; otherwise the 30 s `set_credit_wait_timeout` deadline.
+- **The ceiling** (`CreditPool` tracks the whole window, in flight included, per request by `MessageId`): set when a response to a request that asked to grow the window grants no more than that request's charge, cleared by growth past it, because servers ramp (Samba declines on early session setup legs; Windows before 2016 grows 32 at a time). Full rule and evidence: `credits.rs` module docs. ❌ Don't fail fast on "window < charge" alone: that fails requests a ramping server was about to fund. ❌ Don't set `header.credits` / `credit_charge` by hand: `CreditReservation::stamp` does both and enters the request in the window BEFORE the send (a fast answer can beat the send's return).
+- **❌ Don't judge the ceiling from a single reply's grant in isolation.** A compound's grant rides on one reply and the others carry 0 (Samba `smb2_calculate_credits`, matching Windows), and Samba answers a pipeline at its maximum unevenly. So a 0 grant is no verdict, and growth clears the ceiling only when it exceeds it by more than what's still in flight (`Window::answer`, `Window::in_flight`). Before that, every compound forgot the ceiling, and `smb-smallcredits` failed the next `FileWriter` with `CreditStarvation` once writer opens became compounds.
+- **Everything this crate sizes itself fits half the ceiling** (`CreditPool::comfortable_charge`; half, so a watcher's long poll and a second chunk still fit): every chunked transfer goes through `Connection::fundable_chunk`, and `quick_read_limit`, `quick_write_limit`, `compound_write_limit`, `credit_capacity_for`, `Tree::write_file`, and `SmbClient::upload` all account for it. A new chunked path must too, or it fails outright on a small-window server (Samba cuts the connection on a charge above `smb2 max credits`). Pinned against real Samba by the `smb-smallcredits` fixture.
+- Every request asks for its own charge back plus enough to reach a 512-credit target. ❌ Don't flatten this to a constant: asking for less than the charge lets the window shrink to nothing and serializes every transfer.
+- `STATUS_PENDING` interim responses carry credits but the request isn't done -- keep waiting.
+- **A reservation refunds into the session it was taken from.** `CreditPool::reset` (a revival) swaps in a fresh `Budget` (permits and window together), and a `CreditReservation` holds the `Arc<Budget>` it debited, so one dropped unsent after the reset (a send that waited through the revival, a pinned handle refused once its session is gone) puts nothing into the new session: neither the dead session's credits, which would let the new connection out-spend the server's window (pitfall 14), nor a settle of its MessageIds, which restart from zero and can be live requests in the new window. ❌ Don't build a reservation from the pool as it is at drop time; only `try_reserve` / `reserve` make one.
+
+## The send path: a writer task, and why
+
+`Connection` never lets a caller touch the socket. `send_and_count` hands a **whole frame** to an `mpsc` queue and waits
+for the writer task's ack; `writer_loop` owns the transport's write half and is the only thing that writes.
+
+- **Bounded.** Each frame gets `set_send_timeout` (20 s default) to reach the socket, then `Error::SendTimeout` and the
+  connection is torn down. Nothing else in this crate bounds this: the response deadline and the credit deadline both
+  start once the server has been asked, so a socket that stops accepting writes is invisible to them. That is exactly
+  how a 2026-08-01 Cmdr wedge sat frozen for 40 minutes with ~700 requests "in flight" and zero bytes on the wire.
+- **Torn down, not retried, on failure.** A write abandoned partway has already put bytes on the wire, so the stream
+  can't be resynced. A frame rejected *before* any byte went out (oversized) is the caller's problem alone and leaves
+  the connection alive.
+- **A failed write is a lost connection, typed as one.** The transport's `Error::Io` becomes `Error::SendFailed
+  { command, source }` (`ErrorKind::ConnectionLost`, retryable, the OS error as `source`) for the caller whose frame
+  it was; every other waiter gets `Disconnected`. Whatever the errno (`EPIPE`, `ECONNRESET`, ...), the connection is
+  gone, so nothing sniffs it. The writer fans out *before* answering that caller, so it already sees
+  `is_disconnected()`. ❌ Don't hand the raw `Error::Io` back: it classifies as `ErrorKind::Io` ("the connection may be
+  fine"), and a consumer then failed the one file in flight while every other waiter recovered (Cmdr, 2026-10-19).
+  `Error::Io` from a live connection means a local failure (a streamed upload's own callback). Read errors already
+  reach waiters as `Disconnected` through `fan_error_to_waiters`. Pinned by
+  `the_request_whose_send_broke_the_connection_reports_it_lost`.
+- **Handing over can be synchronous.** `Connection::dispatch_without_waiting` takes a credit (`try_reserve`) and a
+  queue slot (the `mpsc` `try_reserve` permit), then builds, signs, and queues the request without awaiting; it's what
+  `Drop` uses (§ Dropping a handle). The frame's place in the queue is its place on the wire. ❌ Take the slot before
+  `prepare_request` allocates the message id: an id allocated and then never sent leaves a hole that Samba's sequence
+  window can't move past, which stalls a live connection. `QueuedFrame` holds the frame's count in `send_queue_depth`
+  until its ack (or its drop), so a cancelled caller can't leave the gauge counting it.
+- **Whole frames only.** `TcpTransport::send` writes a 4-byte length header and then the body. A caller cancelled
+  between the two used to leave a header with no body on the wire and every later frame landed inside it — and
+  consumers cancel constantly (a user aborting a copy). Queuing the frame as one message makes that unreachable.
+- ❌ **Don't add a second writer, or let a caller call `TransportSend::send` directly.** Frames would interleave.
+- The queue is bounded (`WRITE_QUEUE_DEPTH`); `send_queue_depth()` is the gauge. Persistently non-zero while
+  `wire_bytes_sent` stands still means the send side is stuck, not the server.
+- ❌ **The writer tallies, it doesn't log per frame.** `SendTally::record` counts every frame that reached the socket
+  and how bad the worst queue time and worst write time were; the sweeper drains it and says so once. `SLOW_SEND_REPORT`
+  (5 s) is a threshold on the frame, never a gate on a log line: every frame in a bulk copy over a slow link crosses it,
+  so per-frame it emitted six or seven `WARN`s a second for a sixteen-minute transfer (2026-08-26).
+
+## In-flight bookkeeping: registered vs sent
+
+`register_waiter` returns a `WaiterGuard` that removes its map entry on `Drop`, so an aborted caller can't leak one.
+Before that, only the response deadline removed a waiter, which inflated the diagnostic and made `reserve_credits`'
+"is anything outstanding?" starvation check permanently true.
+
+- `Waiter` carries `registered_at` **and** `sent_at`. `OutstandingRequest::sent_age` is `None` while a request is still
+  queued for the transport. ❌ Never read a large `age` as "the server didn't answer" without checking `sent_age`
+  first — that conflation is what sent three investigations after an innocent server.
+- The stale-request warning says which case it is. `classify_outstanding` owns the split into three populations
+  (`unanswered` / `queued` / `parked`) and `sweep_report` turns them, plus the send-side reading, into log records, so both the split and the VOLUME
+  can be tested apart from the wording.
+- ❌ **One line per sweep for the whole send side, never one per frame.** Frames waiting for the socket collapse into a
+  single record naming the count, the oldest one's age, the command mix, the queue depth, and what the writer actually
+  got out over the interval (frames, rate, how many were slow, worst queue time + worst write time); the frame-by-frame
+  detail is at `TRACE`. An idle-and-healthy connection says nothing at all. Copying 282 × 66 MB to a NAS over 6.7 MB/s Wi-Fi keeps ~320 one-MiB frames queued at all times,
+  and a line each made 4,487 of the 4,744 lines in a user's diagnostic bundle this one message — a bundle covering
+  2 minutes 30 seconds, with everything else already rotated out (2026-08-26).
+- ❌ **A deep send queue is only a `WARN` when it isn't draining.** `Inner::observe_send_side` tracks when a whole
+  frame last reached the socket. Recently enough means the link is simply slower than the writers filling it, the
+  transfer is working, and that gets `INFO`. Silence past `stall_tolerance` means the writer task or the socket is the
+  problem, and that keeps `WARN`. ❌ Don't demote the stalled half to match, and ❌ don't call `observe_send_side` from
+  anywhere but the sweeper: it consumes the previous reading, and a second caller would leave the sweeper measuring
+  silence from its own last look. `INFO` rather than `DEBUG` because consumers ship `INFO` in bundles, and a bundle that
+  can't show the link was the bottleneck sends the next investigation after the server again.
+- ❌ **`stall_tolerance` is the send deadline, never one sweep.** `wire_bytes_sent` ticks only on a WHOLE frame, so
+  between completions it stands still by construction and the gap between them is the per-frame write time. Judging a
+  single sweep would call any link slower than one frame per `STALE_WAITER_SWEEP` a wedge: ~105 KB/s at a 1 MiB
+  `MaxWriteSize`, ~840 KB/s at the 8 MiB one Windows and several NAS boxes negotiate, while `SEND_TIMEOUT` is sized for
+  50 KB/s and 400 KB/s. That whole band is ordinary Wi-Fi. Deferring to `send_timeout` closes it by construction: a link
+  the send path tolerates is never called stalled, and one it doesn't tears itself down with `Error::SendTimeout`
+  anyway. `send_timeout: None` falls back to the default rather than going quiet -- that consumer removed the teardown,
+  not the diagnosis, and `set_stale_request_warning(None)` is the knob for silence.
+- The send side's clocks restart on revival (`install_transport`): a fresh socket owes nothing, and carrying the dead
+  one's silence over would let the first sweep call the new connection wedged.
+- ❌ **Long polls are never warned about.** Every line the sweeper writes means "this should have come back by now", which for a CHANGE_NOTIFY is false by construction, so warning about one is the sweeper contradicting the deadline. At the sweeper's cadence it also buries the genuine lines: a file manager watching two panes logged 5,911 `WARN`s in six hours about requests nothing was ever going to answer (2026-08-03). They stay observable at `TRACE` every sweep, and named in full at `WARN` alongside any REAL stale request (an unanswered request, or a send queue that has stopped draining), because a wedge investigation wants the whole in-flight picture.
+- Dropping a guard records the id in a bounded ring so a late response still counts as `responses_late_after_drop`
+  rather than `responses_stray`; without it, routine cancellation would drown the "we got a frame we never asked for"
+  signal.
+
+## Response deadline
+
+`Connection::await_response` gives up with `Error::Timeout` after 30 s of silence, so a server that stops answering on a live socket can't hang a caller. Tune or disable with `set_response_timeout`.
+
+- The clock measures **silence, not elapsed time**: `Waiter.last_activity` is refreshed on every interim `STATUS_PENDING` and by `mark_sent`, so an acknowledged long operation is never cut short and a frame that crawled onto a slow link still gets the full budget afterwards. ❌ Don't remove either refresh to "simplify" the deadline — both are what make 30 s safe, and each has a test that fails without it.
+- **A request on a provably-alive connection gets `ALIVE_DEADLINE_FACTOR` × the budget** (6, so 3 minutes at the defaults) before being abandoned. See § Liveness below for what "provably" means; the counter is `response_deadline_extensions`.
+- **Running out of budget produces one of two errors, and the difference is the connection, not the request.** `Inner::unresponsive_for()` (`Some` only when the keepalive is armed AND the wire has been quiet past the liveness window) turns `Error::Timeout` into `Error::ServerUnresponsive` and tears the connection down via `declare_unresponsive`, so every other waiter is told at once and `reconnect_if_needed` has something to revive. ❌ Read it BEFORE `remove_waiter`: `quiet_for` measures from the oldest outstanding request, so a lone waiter deregistering first takes the evidence with it.
+- **The teardown costs a request its whole deadline first, and that is the point.** The keepalive on its own must never end anything (§ Liveness); pairing "this request is out of budget" with "the connection said nothing at all" is what makes the verdict safe from a NAS that drops probes while it writes.
+- CHANGE_NOTIFY is exempt from the *request's* deadline (`is_long_poll`) — it waits for an event that may never come. Add any new wait-for-an-event command there. Two things stand in for the deadline, and neither substitutes for the other: the connection-silence bound in `await_long_poll` (the same `unresponsive_for` verdict on `quiet_for`'s clock, held to the response-deadline budget) ends a watch on a DEAD LINK, and the refresh cycle below retires a subscription a live link cannot speak for. Without the first a `Watcher` on a dead session waits forever, and with the keepalive off it does exactly that, deliberately.
+- ❌ **Anything holding a `WaiterGuard` must finish through `await_response`, never a bare `guard.recv()`.** `recv()` is an unbounded `oneshot` await — it walks past the deadline, the alive-extension, and the long-poll bound alike. `Watcher::next_events` did exactly that, so the one production consumer of the long-poll bound never reached it: against a real Samba with `smbd` suspended, 90.3 s of connection-wide silence and 17 consecutive unanswered probes left the watcher waiting (2026-08-02). Routed through `await_response` it is now told at 30.1 s, measured on the same rig. The NEGOTIATE in `Connection::negotiate` is no exception: a bare `recv()` there let a server that accepted the socket and never answered hang the handshake, and every reconnect built on it, indefinitely ([cmdr#406](https://github.com/vdavid/cmdr/issues/406)).
+- Timing out removes the waiter, so an abandoned request leaves no entry in the routing map.
+- **These are `Connection` setters, not `ClientConfig` fields**, like every other tunable here (credit wait, stale-request warning, keepalive). A new `ClientConfig` field breaks every consumer's struct literal that doesn't spread `..Default::default()`, a minor bump under this crate's pre-1.0 SemVer, so it has to buy something a setter can't. The one exception is `ClientConfig::response_timeout`: the NEGOTIATE inside `SmbClient::connect` runs before any setter can reach the connection, so the handshake deadline can only come from config. `SmbClient::connect` applies it before NEGOTIATE, a DFS target dialed later takes the primary's CURRENT value (`Connection::response_timeout`), and a revival keeps it because it reuses the same `Inner`.
+- **The defaults are a set, not independent numbers**: slow-send report (5 s) < send deadline (20 s) < response deadline (30 s); the stale-request warning (15 s) plus one sweep (10 s) fits inside the response deadline so a wedge is always named in the log before its waiter disappears; and a probe goes out and gets its answer (5 s + a tick), and liveness stops looking proven (15 s), both well inside the response deadline. `the_default_deadlines_are_layered` fails if a tuning pass breaks any of it. The fault-injection harness scales the same ratios down — ❌ don't set its `BASE_DEADLINE` below `LIVENESS_WINDOW_PROBES` × `KEEPALIVE`, or requests there expire before the connection can be judged and the tests stop describing the shipping shape.
+
+## The long-poll refresh cycle
+
+Full rationale in `connection.rs` on `LONG_POLL_REFRESH`.
+
+**A subscription is retired and re-issued every 10 minutes, because nothing can tell a dead one from a quiet one.** A CHANGE_NOTIFY the server has silently forgotten and one watching a directory nobody has touched produce the identical observation: nothing at all. Every liveness verdict this crate reaches is about the CONNECTION, so a server answering everything except one dropped subscription reads as perfectly healthy — and a QNAP TS-464 did exactly that for 6,186 s while `fs_info` on the same connection round-tripped in 4 ms and every ECHO probe was answered (2026-08-03). Re-issuing on a cycle heals that with no verdict to get wrong.
+
+- ❌ **It is not a detector and can't be made into one.** Don't add a "this watch looks dead" heuristic on top: the healthy case *is* silence, so any such rule ends healthy watches. `long_poll_refreshes` counts handovers, never faults.
+- **`Connection::set_long_poll_refresh(Option<Duration>)`** tunes it; `None` keeps one subscription forever, which is what a consumer re-creating its own watchers wants. Per connection, like every other tunable here.
+- **Both of a `Watcher`'s subscriptions are replaced, and the replacement goes out first.** The pipelined watcher's whole guarantee is that the server is never without an outstanding request; a refresh that cancelled before it re-issued would open the exact loss window that design exists to close. ❌ Don't reorder `Watcher::refresh`.
+- **The CANCEL must carry the `AsyncId`** the server assigned in its interim STATUS_PENDING (MS-SMB2 § 3.2.4.24); one sent against the `MessageId` alone matches nothing and the server keeps the subscription, so every cycle would leave another one registered. `Waiter.async_id` records it, `OutstandingRequest::async_id` exposes it, and `send_cancel` takes it.
+- **A CANCEL is stamped with the generation its `MessageId` came from**, and `send_cancel` drops one that doesn't match the connection's current generation, or that would go out with no session id. A `MessageId` means nothing outside the session that issued it: a revival resets the counter to zero, so a stale cancel names an unrelated live request or nothing at all. ❌ Don't read `generation()` at cancel time — a revival in between has already moved it, which is the case the stamp exists to catch. `WaiterGuard::generation` and `LongPollOutcome::RefreshDue.generation` carry it from registration. The no-session half is separate and load-bearing: `revivals` ticks only after a WHOLE revival succeeds, so the generation still matches through NEGOTIATE and SESSION_SETUP, when the server's credit window is zero wide and an over-spent frame is discarded in silence.
+- **The clock is `waiter_sent_age`, not `last_activity`.** A long poll gets exactly one interim PENDING, right at the start; measuring from something that restarts there would silently measure the same thing under a different name.
+- **The refresh is off on the `execute` path** (`await_response` passes `None`). Retiring a subscription is only useful to whoever can issue its replacement, and an `execute` caller has handed over the only handle to it. `Watcher` owns that loop and uses `await_long_poll_refreshable`.
+- It is the slowest clock on a connection by design and `the_default_deadlines_are_layered` pins that: everything faster than it is about detecting a death, and this detects nothing.
+
+## Liveness: the ECHO keepalive
+
+Full rationale in `connection.rs` on `KEEPALIVE_AFTER` and `Connection::echo_probe`.
+
+**The keepalive tells the response deadline whether the server is alive; an alive server gets more time.** That is the whole feature, and it is on by default because it can only ever hand time out. A deadline alone cannot tell "slow" from "dead", so it has to be sized for the slowest healthy case and is therefore a poor detector of the dead one. SMB2 ECHO touches no share, handle, or disk, so an answer means the server is processing requests — which is what lets the deadline be both short and safe.
+
+- **`last_frame_at` is the liveness clock**, fed by EVERY received frame (responses, interim PENDING, oplock breaks, even strays), because all of them prove the same thing. `None` until the server has actually spoken: a connection that has never said anything has proven nothing, and ❌ the extension must never be granted on an assumption.
+- **Every inbound byte counts, not just every whole frame.** `Inner::last_heard` folds the transport's `ReceiveProgress` last-byte time into `last_frame_at` (the later of the two wins, so the stall shift and a revival's reset keep working). TCP delivers in order, so a large response trickling in holds the wire and everything behind it waits, ECHO replies included: an 8 MB READ at 200 KB/s is 40 s during which, on whole frames alone, the connection read as silent, the probes as unanswered, and the read ended in `declare_unresponsive` against a server talking the whole time. `a_response_still_arriving_is_not_silence` pins it over a real loopback socket; `a_response_that_stops_halfway_is_still_a_death` pins the other side (bytes that stop are silence again). ❌ Don't read `last_frame_at` directly for a liveness decision; go through `last_heard`.
+- **Known limit:** a trickling frame earns a request the ALIVE ceiling (6× the deadline, 3 min by default), not unlimited time, and with the keepalive off it earns nothing, so one frame slower than that still ends in `Error::Timeout` (a single failed request, never a teardown): below ~46 KB/s for an 8 MB frame. A `Tree::download` READ is 512 KiB, which moves that to ~2.9 KB/s, but `read_file_compound` and `FileReader` still send `MaxReadSize` frames. A response queued behind a long inbound backlog is in the same position. Fixing that properly means a request's silence clock pausing while the inbound stream is occupied, which is a design pass (a busy stream of other frames must not keep a forgotten request alive forever), not a tweak.
+- **The keepalive probes only when `quiet_for()` ≥ the threshold** (5 s, `set_keepalive`). `quiet_for` measures from the LATER of "the server last spoke" and "the oldest unanswered request went out" — a server can't be silent about a question it hasn't been asked, and a connection that never spoke is quiet from the first ask. `None` (nothing on the wire) means no probe: no work to protect. So a busy connection never probes at all, and an idle one doesn't either.
+- ❌ **A missed probe ends nothing.** It leaves the liveness clock stale, which withholds the deadline extension, and that is its entire consequence. The QNAP TS-464 drops probes precisely while it is writing (measured 2026-08-02: two answered, one dropped, under write load), so a keepalive that could declare death would tear down healthy connections exactly during a transfer. `keepalive_loop`'s only action is `ProbeOutcome::Broken → return`; everything a caller can feel is decided in `await_response`.
+- **`Error::ServerUnresponsive` is the response deadline's verdict, not the keepalive's**, and `fan_error_to_waiters` preserves it rather than collapsing it to `Disconnected` (the two answer different questions for a consumer deciding between reconnect and retry-the-file). See § Response deadline.
+- **A probe that can't be sent is `Skipped`, never a failure.** ❌ Don't make it wait for credits: the window is fully spent exactly when the pipeline is deepest, so counting "couldn't ask" as "didn't answer" would put the busiest healthy transfers first in line for every harsh conclusion. It takes its credit with `try_reserve` (via `dispatch_reserved`) or skips.
+- **Getting the probe onto the wire is the send deadline's business**, not the keepalive's, so `echo_probe` puts no timeout around the dispatch. A stuck socket already has an owner that tears the connection down; blaming the server for it is the misdiagnosis `sent_at` exists to prevent.
+- ❌ **Don't coarsen the loop's tick while idle.** The sleep is chosen before the check, so a long idle interval delays the round that would notice a `set_keepalive` change too. That cost 5 s of setter lag for one timer per second.
+- **`Connection::liveness()` and `Connection::inbound()` are the pollable face of these clocks** (`Idle` / `Alive` / `Quiet` / `Unresponsive` / `Disconnected`, and live byte counts). `Unresponsive` is `unresponsive_for()`, the exact evidence the deadline turns into `Error::ServerUnresponsive`, so a watchdog sees it before a request pays for it. Pure reads: ❌ `liveness()` must not call `forgive_scheduling_stall` (it runs on the consumer's thread, and moving the shared witness from a thread that kept running would hide a starved runtime from the loops); it checks `loops_are_behind()` and withholds the verdict instead.
+- **Every clock here measures wall time, so it measures THIS PROCESS too**, and `forgive_scheduling_stall` is what keeps that from becoming a verdict. A system sleep, an App Nap, or a machine starved by a parallel build stops the loops while `Instant` keeps running, and the wire then reads as silent for minutes because nobody was listening. The witness is cadence: every loop here wakes on a `keepalive_tick` or faster, so a gap since the last one that exceeds the probe threshold on top of the tick is us, not the server. Forgiving it shifts `last_frame_at` and every waiter's timestamps forward by the gap ("nothing aged while we were gone"), logs one `info`, and counts `scheduling_stalls`.
+- ❌ **Don't leave the stall check to the keepalive task alone.** Every wait loop wakes from the same stall at the same instant, so one that read its clock before the keepalive got scheduled would declare the death this prevents. `await_response` and `await_long_poll` both call it before reading any clock; it's idempotent, so whoever arrives first does the correction.
+- ⚠️ **It forgives, it never exonerates.** The clocks restart, the probes restart with them, and a genuinely dead server is declared dead one budget later. Suppressing the verdict outright would trade a false death for a permanent hang.
+
+## Paths and the names SMB2 won't carry
+
+Table, rationale, and the empirical evidence: `src/name.rs` module docs. What matters at this layer:
+
+- **`Tree::format_path` is the one outbound encode point**, and every method taking a caller path calls it at its own boundary. ❌ Nothing may hand an already-formatted path to another method: a second pass turns the wire path's `\` separators into U+F026 name characters and prepends the DFS prefix twice. The four `open_*` helpers format their own argument, which is what makes double-encoding unreachable rather than merely avoided.
+- **Decoding has to cover every site a name arrives at, or the two halves disagree** and a listing hands back names that nothing can open. Today: `parse_directory_entries` (`tree.rs`, single components → `decode_name`, for both listing classes), `parse_stream_information` (`streams.rs`, stream names → `decode_name`), `parse_notify_information` (`watcher.rs`, relative paths → `decode_path`), and `resolved_name` (`resolve.rs`, share-relative paths → `decode_path`). ❌ Adding an info class that carries a name means adding a decode there too.
+- **What is deliberately NOT mapped**: share names, tree-connect paths, the `srvsvc` pipe name, DFS referral *server* and *share* fields, and the `*` search pattern in QUERY_DIRECTORY. Those aren't file names, and the wildcard is meant to be a wildcard.
+- **`/` is the only separator a caller can write.** A `\` is a name character (U+F026). `Tree::rename`'s target, `SmbClient::upload`, `Tree::download`, and the DFS remaining-path all go through the same codec so one convention holds end to end.
+- **DFS referral paths are encoded too** (`SmbClient::redirect`), because the lookup and the CREATE that follows have to agree on where a component ends; the remaining path comes back through `decode_path` into caller form.
+
+## Compound requests
+
+`Connection::execute_compound(&[CompoundOp])` packs multiple operations into a single transport frame. Each sub-request is 8-byte aligned, linked via `NextCommand`. Subsequent related operations use `FileId::SENTINEL` (the server substitutes the real handle from the first CREATE).
+
+- **Read compound**: CREATE + READ + CLOSE (3 ops, 1 round-trip). Default for `read_file`. `read_file_compound_sized` is the same chain asking only for a known size, which is what keeps the credit charge off the whole window (see Connection and credits).
+- **Write compound**: CREATE + WRITE + FLUSH, then a standalone CLOSE (2 round trips). Default for `write_file` and `SmbClient::upload` below `compound_write_limit`. The FLUSH ends the chain because it's the op that goes async, and a server may refuse an async op anywhere but last (MS-SMB2 § 3.3.5.2.7): Windows answered every mid-chain FLUSH with `STATUS_INTERNAL_ERROR` (Server 2022, 39 B–4 MiB, 2026-09-23), and Samba up to 4.15 does too, then panics smbd when the abandoned fsync finishes (AGENTS.md pitfall 33; reproduced on 4.9.5 and 4.15.13, pinned by `samba415_small_writes_keep_the_connection`). The FLUSH-last chain went async (interim `STATUS_PENDING`) and worked on Samba 4.10.18 and 4.15.13 and on Windows. Cost on the QNAP TS-464 over Wi-Fi (~3 ms RTT, 6 KB files, 2026-10-19): 5.5 → 9.7 ms per file sequentially, 1.3 → 2.0 ms at eight in flight, against the old one-frame four-op chain. A refused FLUSH fails the write with `Error::Protocol { command: Flush }` after the CLOSE. ❌ Don't fold the CLOSE back in, and don't put an op that can go async anywhere but last in a new compound.
+- **Delete compound**: CREATE + SET_INFO (delete disposition) + CLOSE (3 ops, 1 round-trip). Default for `delete_file` / `delete_directory`. `delete_file`'s CREATE shares only delete, so the server breaks a handle lease another client caches the file under (macOS keeps one for ~1 min after any read through the mount; sharing read/write left the file `DELETE_PENDING` that long, vdavid/cmdr#307). A `SHARING_VIOLATION` (a genuine open) or `INTERNAL_ERROR` (Windows refusing a mid-compound async op) retries sharing everything. Pinned by Docker `a_delete_asks_a_lingering_lease_holder_to_let_go` (Samba 4.20, 2026-10-05). A CLOSE answered `STATUS_UNSUCCESSFUL` retries the whole compound once after 50 ms: QNAP answers that when deletes on several connections race to create the same `@Recycle` folder, and leaves the losers in place (QuTS hero + QNAP `ksmbd`, 2026-10-22, `docs/notes/2026-10-22-rm-close-unsuccessful.md`). ❌ Keep it to that one status and one retry: it's a catch-all status.
+- **Rename compound**: CREATE + SET_INFO + CLOSE (3 ops, 1 round-trip). Default for `rename` and `rename_with`. `RenameOptions::replace_if_exists` sets `ReplaceIfExists` in the `FILE_RENAME_INFORMATION_TYPE_2` buffer (MS-FSCC § 2.4.42.2), and that's the only thing it does: the server swaps the file in, so the destination is never missing. ❌ Don't emulate it with delete + rename; that's the window the option exists to close (`rename_replaces_an_existing_destination_only_when_asked` pins the one SET_INFO, and the Docker `guest_a_replacing_rename_moves_the_source_file_under_the_taken_name` that the source's own file ends up under the name). Samba 4.20.6 (2026-10-14): a taken name without the option is `STATUS_OBJECT_NAME_COLLISION` on the SET_INFO; a directory at either end is refused the same way even with it; a destination open by another client (lease or not) or marked Read-only is replaced anyway, where Windows answers `STATUS_ACCESS_DENIED` (MS-FSA § 2.1.5.15.12, never tested here). Onto itself and case-only renames succeed either way. Gotcha/Why: a client opening the destination *while* it's swapped can still get `STATUS_OBJECT_NAME_NOT_FOUND` from Samba, because Samba's `open_file` looks the file up, checks it again, and reads one swapped out in between as "vanished since we checked for existence". That's the server's open path, not the rename: a `stat` loop beside 500 replacing renames missed 0–2 times idle and 10 in 200 under the full Docker suite's load, where delete + rename missed ~700 times per 500. Load-dependent, so ❌ don't write a test asserting a reader never misses.
+- **Stat compound**: CREATE + QUERY_INFO (basic) + QUERY_INFO (standard) + CLOSE (4 ops, 1 round-trip). Default for `stat`. `stat_with_identity` adds the two `FileIdentity` queries (class 6, then `FileFsVolumeInformation`) after the metadata ones, before the CLOSE (6 ops, still 1 round-trip), so a server that refuses or cascades them can only take the CLOSE down; a CLOSE that didn't succeed gets a standalone one (the leak PR #4 found), for both shapes. Its identity is filtered by `FileIdentity::is_proof`, the checkpoint's rule, so a stat and a writer for the same file compare equal (Docker `guest_stat_with_identity_names_the_same_file_a_writer_checkpoint_does`). ❌ Don't fold the identity into plain `stat`: every listing-driven stat would pay two more sub-requests for an answer few callers want, and `plain_stat_stays_four_ops_with_no_identity_query` pins the shape. It's a separate call returning `(FileInfo, Option<FileIdentity>)`, not a field on `FileInfo`, because a field `stat` leaves `None` couldn't tell "not asked" from "the server wouldn't say".
+- **Fs-info compound**: CREATE + QUERY_INFO (FileFsFullSizeInformation) + CLOSE (3 ops, 1 round-trip). Default for `fs_info`.
+- **Resolve compound**: CREATE + QUERY_INFO ×6 (basic, standard, class 18, index, volume, class 48) + CLOSE (8 ops, 1 round-trip). Default for `resolve`. The order is load-bearing; see § Resolving names.
+- **Named open**: CREATE + QUERY_INFO (class 18 for a reader; index and volume for a writer) + QUERY_INFO (class 48), no CLOSE. Every `FileReader` and `FileWriter` open (`resolve.rs` `open_and_name`, `OpenFor`). Class 48 stays last for the same cascade reason as in `resolve`.
+- **A compound CLOSE that didn't succeed gets a standalone CLOSE** in `resolve`, whatever failed ahead of it: MS-SMB2 § 3.3.5.2.7.2 lets a server fail every related op after a failed one with the same status, so an optional query failing takes the CLOSE with it.
+- If CREATE succeeds but a later op fails, the client issues a standalone CLOSE to avoid leaking the handle.
+
+### Receiving compound responses
+
+`execute_compound` returns `Result<Vec<Result<Frame>>>`. The outer `Result` is "did the compound hit the wire"; the inner one is per-sub-op (waiter-level: session expired, signature verify, connection dropped mid-await). Sub-op protocol status codes (`STATUS_OBJECT_NAME_NOT_FOUND` etc.) ride in the inner frame's `header.status`, not the inner `Result`. Per MS-SMB2 3.3.4.1.3 the server MAY split the compound response across multiple transport frames (Samba, QNAP, Windows Server in some cases); the receiver task routes each sub-response by `MessageId` so the per-waiter `oneshot::Receiver`s resolve independently and `execute_compound` reassembles the result vector in submission order.
+
+Most callers use a small `all_or_first_err` helper (see `tree.rs`) that propagates the first inner `Err` as the outer `Err` and hands back a `Vec<Frame>` indexable per sub-op. It takes the expected frame count and errors on a mismatch, because every caller indexes fixed positions (`responses[2]`) straight afterwards and a short chain would otherwise panic. Tolerating partial failure (for example, CREATE ok, READ fails → issue standalone CLOSE with the create's returned `FileId`) keeps the individual inner `Result`s.
+
+## Named streams and xattrs
+
+Evidence for every server claim here: `docs/notes/named-streams-and-xattrs.md`.
+
+- **A stream name never goes through `format_path`.** It travels as its own argument and `stream_wire_name` joins them (AGENTS.md pitfall 40). ❌ Don't let `:` through `encode_path`.
+- **`write_stream` probes the file first** (CREATE + CLOSE), because a stream CREATE that may create also creates the file. ❌ Don't drop the probe to save the round trip: a tag written to a file someone just deleted would bring back an empty file.
+- **`delete_stream` checks with a listing**, because a QNAP answers success for `_kMDItemUserTags` and `AFP_Resource` and keeps them (`Error::StreamDeleteIgnored`). ❌ Don't trust the status alone, and don't fall back to an empty value here: what "cleared" looks like is the consumer's format.
+- **A refused WRITE deletes the stream.** The CREATE has already emptied it, and an empty value reads as a real one.
+- **`get_xattr` lists first, without `assume_paths_exist`**: measured faster than reading first when few files carry the attribute, and it tells a missing file apart. With the option, it reads straight away.
+- **A copy's calls ride frames it already sends**: `download_with_streams` (CREATE + QUERY_INFO) and `read_file_compound_sized_with_streams` (CREATE + READ + QUERY_INFO + CLOSE, the listing after the READ so a refusal can't take the bytes down) list the streams at no round trip (the server's listing work stays: +0.3 ms a small file on the QNAP), any CLOSE that didn't succeed gets a standalone one, `get_xattrs` reads what they listed, and `set_xattrs_on_new_file` skips `write_stream`'s probe and FinderInfo's read-back. ❗ That last one CREATES a missing file: only for a path the caller just made. A stream opens beside a writer holding the file with `ShareAccess(0)`, the writer's `set_times` outlasts the stream writes, and a rename keeps the streams (`fruit_xattrs_on_a_new_file_beside_its_open_writer_*`).
+- **`OBJECT_NAME_INVALID` on a stream CREATE means no named streams** (`Error::NamedStreamsUnsupported`), since both names went out mapped to a legal form.
+
+## The pipelined engine (`batch.rs`)
+
+`batch::run(count, window, item)` drives item futures with `buffer_unordered` and yields `(index, Result)` as each finishes; `collect_in_order` is the thin wrapper. The closure picks the `Connection` and `Tree`, so nothing assumes one connection. `window_for` keeps a batch inside half the credit ceiling. Decision/Why: no per-item timeout, since a stalled `smbd` is a working server and the connection's liveness handling already tells slow from dead. `stat_files`, `delete_files`, and `rename_files` don't use it yet.
+
+## Batch operations
+
+`delete_files`, `rename_files` / `rename_files_with`, and `stat_files` are thin loops over `delete_file`, `rename_with`, and `stat`. Partial failures are independent — if 3 of 50 files fail, the other 47 still succeed. Each method returns `Vec<Result<T>>` in the same order as the input.
+
+Decision/Why — these are convenience, not throughput. Each item costs one round trip and nothing overlaps, so they save the per-call setup and nothing else. Don't document them as pipelined: they were, once, and the docs outlived the behavior long enough to mislead a consumer into expecting overlap it never got. A caller that needs real overlap runs the single-item call on several connections concurrently, which is what `smb2-cli` does. They loop over the single-item methods on purpose, so a fix like the delete disposition change lands in one place.
+
+## DFS (Distributed File System) resolution
+
+**Two entry points, because a namespace root and a link fail in completely different places.** Cross-module traps:
+`AGENTS.md` pitfall 25. The referral wire format: `src/msg/CLAUDE.md`. The fixtures and what they can't prove:
+`tests/CLAUDE.md` § Docker integration tests.
+
+**A namespace root, at `connect_share`.** `\\<domain>\<namespace>` is not a share on the server answering that name,
+so its TreeConnect is refused with `STATUS_BAD_NETWORK_NAME` — required by MS-SMB2 § 3.3.5.7, so a contract rather than
+a quirk — and `STATUS_PATH_NOT_COVERED` is never returned. `connect_share` checks the referral cache first
+(§ 3.1.4.1 step 2), otherwise tree-connects, and on refusal asks for a ROOT referral and connects the target, following
+an Interlink by re-resolving and stopping at `MAX_DFS_HOPS`.
+
+**A link, at every `SmbClient` call that takes a path.** A CREATE refused with `STATUS_PATH_NOT_COVERED` sends
+`follow_dfs_link` to resolve the referral, connect the target, and run the call once more there with the remaining path.
+It's the one place that happens; every entry point goes through it, via `beside_tree` (or `replaying`, the same
+plus a replay after reviving a dead session, for the reads, listings, `stat`, and `resolve`).
+
+- ❌ **The caller's tree never moves.** A path on it always means the caller's share, link folder included, so browsing
+  into a link and back out on one tree works. Rewriting it to the target (which these calls once did) made every later
+  path target-relative: a `NOT_FOUND` on a folder that exists, or a same-named file on the target read, overwritten, or
+  deleted. `a_call_through_a_link_leaves_the_callers_tree_on_its_share` and the Docker
+  `dfs_listing_a_link_then_the_root_lists_the_root` pin it.
+- **What comes back is in the caller's terms too.** A handle keeps the target tree for itself (`FileDownload`,
+  `FileWriter`, `Watcher`); a path the target returns (`Resolved::path`) goes back through `Link::caller_path`, which
+  swaps the target's folder for the caller's link folder using the referral's depth (`ResolvedPath::link_depth`).
+- **One tree connect per target share** (`Connections::link_tree`, stamped with the connection's generation, dropped by
+  `disconnect_share` and on reconnect). ❌ Don't tree-connect per call here: a handle can't disconnect its tree, so every copy out of a link would
+  leak one.
+- **Once only.** A target answering `STATUS_PATH_NOT_COVERED` in turn is the caller's answer.
+- ❌ **Only a refused CREATE triggers it** (`is_dfs_link`), never `ErrorKind::DfsReferral` on any command. That's what
+  makes the retry safe for the progress and streamed calls, which run only their open through the helper and the rest
+  afterwards on the tree it returns, so no callback runs and no source chunk is pulled before the redirect.
+- ❌ **The op gets owned clones** (`Connection`, `Tree`, `String`). An `AsyncFnMut` over borrowed arguments reads better
+  and compiles, but rustc can't prove its future `Send` (higher-ranked lifetimes), and consumers spawn these calls.
+  `dfs_following_futures_stay_send` fails if it regresses.
+- ❗ **A referral can't send credentials to a different host without `ClientConfig::dfs_target_policy`** (`dfs_policy.rs`). A referral comes from the server, and following one signs in where it says, so a malicious share could name a machine of its own and collect the sign-in. The default, `SameServerOnly`, answers `Error::DfsTargetNotAllowed` (kind `DfsTargetNotAllowed`, not retryable, and `follow_dfs_link` lets it replace the server's answer) and dials nothing. Three places ask: `ensure_connection` (the one dial, namespace roots and Interlinks included), `link_target_tree` (ahead of the pool, so a consent taken back stops a link on its next call), and a target's `ClientReviver::dial`. `Ask` runs inside the client's call, so ❌ it answers from memory; a consumer asks a person when the error comes back.
+  - `same_server` needs proof: the same host once ASCII case, one trailing dot, and an IP's spelling are set aside, and the same port. ❌ A short name and its FQDN, or a name and its IP, are different: a wrong "same" hands a password to a stranger. A link that lands on the primary connection dials nothing and never asks.
+  - A refused target falls through to a permitted one, and with none left the refusal outranks an unreachable target.
+  - `dfs_consent` in `client/mod.rs` pins all of it against a counting listener (0 accepted connections), and Docker `dfs_link_to_another_host_needs_consent` against a real referral.
+- **A known link skips the refusal** (MS-DFSC § 3.1.4.1): `follow_dfs_link` first asks `cached_link`, and a path the
+  referral cache places behind a link goes straight to the target, the same place the refusal would send it. Only the
+  first call through a link pays the refused CREATE; a cold cache or an expired entry falls back to it, so a stale target
+  is never reused past its TTL. Batches follow item by item like every other call; items outside the link run on the
+  caller's share. `a_cached_link_sends_no_refused_create` and Docker `dfs_link_a_known_link_skips_the_root_share` pin it.
+- ❌ **A link lookup takes only a link's entry** (`DfsResolver::link_from_cache` / `resolve_link`: a prefix of 3+
+  components). A namespace root's `\\dom\ns` entry from `connect_share` covers every path under it too, and taking it
+  would send the call back to the share that just refused it.
+- **`resolve_dfs_link` is the same lookup, public**: cache, else one referral (a refused referral IOCTL means "no link
+  here", `Ok(None)`), then the pooled target tree, returned as a `DfsLink` with `link_path` so a consumer can route a
+  whole folder. Free on a share without `Tree::is_dfs`. `connection_for` hands out the target tree's connection for
+  `Tree` methods. A path outside every link isn't negatively cached: a consumer asks per folder, not per file.
+- **A rename moves its destination with the link** (`Link::target_path`): SET_INFO's destination is share-relative, so
+  `rename_with` follows the link for `from`, then renames on the target with `to` mapped through the same link,
+  across subfolders too. A `to` outside the link folder (or the folder itself) keeps `STATUS_PATH_NOT_COVERED`: that's a
+  move between shares, which no single rename does.
+- **`Pipeline` doesn't follow links**: it reports `STATUS_PATH_NOT_COVERED` per op, since a hidden referral would break
+  its one-op, one-exchange contract. Its rustdoc says so.
+
+- ❌ **A failed referral must never replace the original error**, for a root or a link. The overwhelmingly common cause
+  of `STATUS_BAD_NETWORK_NAME` is a mistyped share name, and telling that person about DFS is worse than telling them
+  nothing. A referral that fails, is empty, or names nothing connectable gives back the refusal. The one exception is
+  a real namespace or link whose storage is not reachable (next bullet).
+- **Two errors for "the storage is out of reach", because they ask for different responses.** A namespace root's targets
+  being down is `Error::DfsNoReachableTarget`, kind `ConnectionLost`: the target IS the share, so reconnecting is right.
+  A link's is `Error::DfsTargetUnreachable`, kind `DfsTargetUnreachable`: the share's connection is fine, so a consumer
+  refuses that one path and keeps its session. ❌ A link's loss never reads as `ConnectionLost`, or one dead link makes
+  the whole share look disconnected (vdavid/smb2#28). Three things make that hold:
+  - **`SmbClient::link_loss` also covers a target dying under a call**, on any call through `beside_tree`, `replaying`,
+    or `rename_with`, including a consumer running a `SmbClient` call on a `DfsLink::tree` directly. It's keyed on
+    `Connections::is_link_tree`, so a namespace root's tree on the same pool keeps `ConnectionLost`.
+  - **A link on the share's own server, with that connection gone, stays the lost connection** (`connect_link`), since
+    there it is the share's.
+  - **The pool lets a lost target go** (`forget_lost_target`, and `link_tree` / `ensure_connection` skip one dead for
+    good), so the next call dials afresh. Without it a client with `auto_reconnect: false` keeps failing on that
+    connection until it's rebuilt, which is what a consumer's lost-share reconnect used to do by accident. A connection
+    with a reviver stays: it may carry a namespace root too, and its trees heal in place.
+  - **Known limit**: a handle already open through a link (`FileReader`, `FileDownload`, a writer) owns the target's
+    connection and reports its loss as that connection's error, since a handle has no link to name. A `DfsLink::tree`
+    held across a loss reads `Error::Disconnected`, so resolve per call.
+- **The trigger is gated on the negotiated `SMB2_GLOBAL_CAP_DFS`**, so a plain NAS pays zero extra round-trips when
+  someone mistypes a share name.
+- ❌ **Never gate on `ServerType`.** Samba answers a root referral with `0` and header flags `0x02` where Windows
+  answers `1` and `0x03` (verified 2026-09-16). A client that requires the Windows values works against Windows and
+  silently refuses every Samba namespace. `RootOrLink` is stored, and decides what happens next, never whether to
+  accept the referral.
+- **`Error::ShareRedirected` is not a DFS case.** MS-SMB2 § 2.2.2.2.2 reuses `STATUS_BAD_NETWORK_NAME` with an
+  `SMB2_ERROR_ID_SHARE_REDIRECT` context for scale-out cluster redirection. `Tree::connect` separates it out, so the
+  namespace trigger can't fire on it by construction.
+- **`Tree::dfs_origin` keeps the caller's own name for a redirected tree.** Show `requested`, not `server`: a person
+  who typed `\\corp.example.com\projects` should not be shown `\\fs01\projects_dfs`, and macOS reports `SERVER_NAME corp.example.com`
+  for exactly this mount.
+- **`TargetHint`** (§ 3.1.1): the target that worked is tried first next time, so a failover survives the next lookup
+  instead of re-walking the dead target on every operation.
+- **A root target is `\\server\share` and nothing more** (§ 2.2.1.6). A target carrying a path suffix is skipped, not
+  silently truncated: a `Tree` cannot express one, and dropping it would open the wrong directory.
+
+- **A cache hit is terminal** in `connect_share`: falling back to a plain TreeConnect when the cached targets don't
+  answer would resolve the namespace twice on the one path where the wait is already long. An expired entry is a miss,
+  so a namespace that has become an ordinary share is found again then.
+- **Why the trigger costs nothing off DFS**: a server that negotiated `CAP_DFS` pays a few extra frames on an error
+  path, a plain NAS none, and a successful TreeConnect never pays anything.
+
+**Not implemented, on purpose** (the open follow-ups are GitHub issues):
+- **DC and domain referrals** (§ 3.1.4.1 reaches for them only through a DomainCache, which a client that isn't
+  domain-joined never has). NameListReferral entries are parsed so they can't be misread, never requested. So a
+  NetBIOS-only domain name that DNS can't resolve stays unsupported.
+- **`FSCTL_DFS_GET_REFERRALS_EX`**: its only extra payload is the client's AD site name, which a non-joined client
+  doesn't know.
+- **Soft and hard TTLs** (§ 3.1.1): one hard expiry, since the split buys a background refresh with no scheduler to run
+  it, and 600–1800 s TTLs make the saving small.
+- **Target failback** (§ 3.1.5.4.3): it needs health checks of a target we moved off. `DfsCacheEntry::target_failback`
+  reports when a server asked for it.
+
+**Key design decisions:**
+- ❌ **Every call that takes a `Tree` goes through the tree's own connection** (`Connections::for_tree`), never `primary_mut()`. A DFS target's `TreeId` means nothing
+  to the primary's session: it fails with `STATUS_NETWORK_NAME_DELETED`, or, when the small per-session ids collide,
+  reads or writes a same-named file on a different share. The primary is private to `Connections` so this can't happen
+  by reaching for a field; `every_tree_call_goes_out_on_the_trees_own_connection` pins the handle and streaming calls.
+- **A pool of extra connections, keyed by `host:port`**, never replacing the primary: replacing it would invalidate
+  every `Tree` the caller already holds.
+- **The DFS header flag follows the tree** (`Connection::register_dfs_tree`), so no call site threads an `is_dfs`
+  argument.
+- **Referral targets dial port 445**: UNC paths carry no port, and 445 is universal in production. Tests remap them with
+  `ClientConfig::dfs_target_overrides`.
+- Only the methods that replay after a reconnect (`list_directory`, `open_directory_reader`, `read_file*`, `fs_info`, `stat`, `resolve`) take
+  `&mut Tree`: `recover_tree` writes the share's new tree id into it. Every other method takes `&Tree`, so its signature
+  says it can't touch the tree
+- `disconnect_share` stays as `&Tree` (no redirect on teardown)
+- Streaming methods (`download`, `upload`) keep `&Tree`: `FileDownload` / `FileUpload` hold a `Cow<'a, Tree>`, borrowed
+  from the caller or owning the link's target, so the public shape didn't change
+- The handle openers take `&mut self`: following a link can dial a new connection into the pool
+- `watch` returns an *owned* `Watcher` (no lifetime); see the [Watcher pipelining](#watcher-pipelining) section
+- `dfs_enabled` flag on `ClientConfig` (default `true`) gates all DFS resolution
+- `Connections` is its own field, so `redirect` and `root_referral` borrow it beside `dfs_resolver` without inlining the lookup
+
+## Watcher pipelining
+
+`Watcher` keeps **one CHANGE_NOTIFY request pre-issued on the wire at all times** after the first `next_events()` call. The wire never sits idle between responses. This closes the response→re-arm loss window that strict servers (older Samba builds, NAS firmware) drop events through.
+
+The wait itself ends one of three ways: the server answers, the connection goes silent (§ Response deadline — and see there for why a bare `recv()` here is a bug rather than a shortcut), or the subscription reaches its refresh age and `Watcher::refresh` replaces both requests (§ The long-poll refresh cycle). `next_events` is a loop for the third case: a refresh is a handover, not an answer, so the caller never sees it.
+
+Shape: `Watcher` owns a cloned `Connection` (cheap `Arc::clone`, all clones multiplex over the same SMB session) and a `Tree` clone — no lifetime parameter, no borrow against the caller's `Connection`. `next_events` dispatches the next request via `Connection::dispatch` (a sibling to `execute` that returns once `transport.send().await` completes, handing back the `oneshot::Receiver` for the response) *before* awaiting the previous response. So when control returns to the consumer, the server already has somewhere to put new events.
+
+Decision/Why — eager-send `dispatch` vs `tokio::spawn(conn.execute(...))`: the spawn-based approach defers the send to when the spawned task is polled, which under tokio's `current_thread` scheduler may not happen until the spawning task yields. That left a gap where the simulator-modeled strict server dropped events. `dispatch` awaits transport.send() inline, so the eager-send guarantee is "after `.await` returns, the request is on the wire" — independent of scheduler.
+
+Pinned by `client::watcher::loss_window_tests::watcher_does_not_lose_events_between_consecutive_requests`: a strict-server simulator drops events that arrive with no outstanding request. Pre-fix: 5/5 gap events dropped. Post-fix: 0/5 dropped.
+
+## Pipelined I/O
+
+For large files, `read_file_pipelined` issues multiple `execute_with_credits` calls concurrently on cloned connections via `futures_util::stream::FuturesUnordered`. The sliding window stays at 32 in-flight requests; credits are not checked here (the connection's pool gates every send). Chunk size is `min(512 KB, max_read_size)`. This is the core performance feature -- without it, throughput is ~10x worse. Uploads pipeline through `WritePipe` instead (§ Uploads).
+
+`FileWriter` owns its `Connection` (cheap `Arc::clone`) and `Arc<Tree>` — no lifetime parameter, no borrow against the `SmbClient` that built it. It buffers pushed bytes and hands them to its `WritePipe` one WRITE at a time; `finish` / `abort` drain the pipe, then FLUSH (finish only) and CLOSE.
+
+FileWriter provides push-based pipelined writes. The consumer pushes chunks at their own pace via `write_chunk`, and waiting for the window to have room is the backpressure. Complement to FileDownload (read streaming). Build one via `open_file_writer(tree, conn, path)` (free function), `Tree::create_file_writer(&Arc<Self>, conn, path)`, or `SmbClient::create_file_writer(&mut self, tree, path)` — the last clones the tree's own connection internally and follows a DFS link.
+
+## Listing a directory (`DirectoryReader`)
+
+`DirectoryReader` (`directory.rs`) is a listing handed over one QUERY_DIRECTORY answer at a time: `next_batch` sends one query and returns that answer's entries, and `STATUS_NO_MORE_FILES` sends the CLOSE before returning `None`. Build one via `Tree::open_directory_reader(&self, conn, path)` or `SmbClient::open_directory_reader(&mut self, &mut tree, path)`. `list_directory` and `list_directory_instrumented` collect through one, so there's a single wire implementation (`Tree::query_directory_step`, which also owns the info class and the name decode).
+
+- **The invariant: an answer the server sent is never lost to a dropped call.** QUERY_DIRECTORY is stateful: the server's cursor moves when it answers, so re-sending after a dropped `next_batch` returns the batch AFTER the lost one, silently. `Connection`'s own drop safety makes it worse here, not better: it discards a dropped caller's answer to keep the connection consistent. So every request the reader makes is a `BoxFuture` held in its `State` (`Querying`, `Closing`), awaited in place, and the next call resumes the same one. ❌ Don't await a query or the CLOSE as a local future inside `next_batch`, and don't put an await between taking an answer and moving the state on. Pinned by `dropping_next_batch_mid_query_keeps_that_batch` (red with an inline `execute`: it returned the second batch) and the Docker `guest_a_directory_reader_lists_a_big_folder_batch_by_batch`, which drops every call after one poll against Samba and still matches `list_directory` exactly across several batches.
+- **Boxed futures, not a `WaiterGuard`.** A guard only exists once `dispatch` returns, and a call dropped while the frame waits for the writer task loses it, with the query still going out. Holding the whole future covers the send, the answer, and the response deadline in one piece. One allocation per round trip, nothing next to the round trip itself.
+- **`close` drains a query a dropped call left out before sending the CLOSE**, so two requests never race on the handle (`closing_after_a_dropped_next_batch_waits_for_its_query_first`).
+- **An error closes the handle and is final.** A failed query moves to `Closing` carrying its error, which outranks the CLOSE's; later calls return `Ok(None)`, like `FileDownload` after an error. Same error precedence as the old inline loop, so `list_directory` reports what it always did.
+- **A batch is never empty**: a SUCCESS answer with no whole entry is recorded (for the instrumented trace) and skipped.
+- **Reconnect: the open replays, the listing never does.** The reader is pinned before its CREATE like every handle (§ Reconnection), so after a revival `next_batch` fails with `HandleInvalidated` and sends nothing, and `close` succeeds without sending. A new session can't resume an old cursor, and replaying from the start would hand the caller entries twice. `SmbClient::open_directory_reader` uses `replaying`, since nothing has been listed when the CREATE fails, and follows a DFS link like `list_directory` (the reader owns the target's tree).
+- `Drop` mid-listing (`Ready` or `Querying`) closes the handle (§ Dropping a handle); a query still out was queued
+  first, so the server answers it before the CLOSE. In `Closing` it sends nothing more, even if that CLOSE's future
+  went away before it got out.
+- **Index numbers are opt-in, and the default listing is byte-for-byte what it was.** `ListOptions::index_numbers` (`open_directory_reader_with`, `list_directory_with`) asks for `FileIdBothDirectoryInformation` (class 37): the default class plus `Reserved2` and the 64-bit `FileId` (MS-FSCC § 2.4.22), the number `FileInternalInformation` calls `IndexNumber` (§ 2.4.27), so it equals `FileIdentity::index_number` for the same file (Docker `guest_a_listings_index_numbers_are_the_ones_stat_with_identity_reports`). Same round trips, 10 bytes more per entry. `the_default_listing_asks_for_class_3_and_reports_no_index` pins the default request field by field. The field is `index_number: Option<u64>`, not a `FileIdentity`: a listing carries no volume serial, and `FileIdentity::is_proof` needs both halves. A 0 means "none" (and is what a server MAY send for `..`), so it becomes `None`. Both classes parse in `msg/directory_info.rs` and map names through the one `parse_directory_entries`.
+- **A refused class 37 falls back on the same handle.** `STATUS_INVALID_INFO_CLASS` or `STATUS_NOT_SUPPORTED` (MS-SMB2 § 3.3.5.18) on the FIRST query (`State::Querying.restart`, so nothing has been handed out) switches the reader to class 3 and restarts the scan: no second CREATE, every `index_number` `None`. ❌ Never fall back on a later query: restarting after a batch went out hands the caller entries twice. The connection learns it (`listing_ids_refused`, erased on revival), so a recursive scan pays the refusal once per connection rather than per directory, and its one `debug` line fires once. Any other error is the listing's error, as before.
+
+## Random-access reads (`FileReader`)
+
+`FileReader` (in `stream.rs`) holds ONE open handle and serves any number of *positioned* reads (`read_at(offset, len)`, the SMB analog of `pread`) before an explicit `close()`. It's the primitive for a consumer that parses a file's structure by jumping around it (zip central-directory browse + entry extract), where reopening per read would leak a handle each time. Build one via `open_file_reader(tree: Arc<Tree>, conn, path)` (free fn), `Tree::open_file_reader(&Arc<Self>, conn, path)`, or `SmbClient::open_file_reader(&mut self, tree, path)` (clones the tree's own connection, follows a DFS link).
+
+Same owned-`Connection` + `Arc<Tree>` shape as `FileWriter`, so it's `'static`. `read_at` takes `&self` (no shared cursor) and issues `execute_with_credits` READs, splitting a range larger than `MaxReadSize` into consecutive wire reads and reassembling. It clamps to the size seen at open, so a read at/after EOF returns empty and a straddling read is short — never an error. `close()` consumes `self` (read-after-close is a compile error) and waits for the answer; a reader dropped without it closes its handle anyway (§ Dropping a handle). Pinned by the `stream.rs` `file_reader_*` mock tests (one CREATE, N READs, one CLOSE; EOF clamping; range splitting; drop closes) and the `guest_file_reader_positioned_reads` Docker test.
+
+## Resolving names (`resolve.rs`)
+
+`Tree::resolve` answers "which file did the server open for this path, and what does it call it?", for a consumer
+enforcing a policy against paths that an 8.3 alias or case folding would otherwise slip past. Full rationale and the
+measurements: `resolve.rs` module docs.
+
+- **Class 48 (`FileNormalizedNameInformation`) is the answer**: long names, on-disk casing, share-relative by spec.
+  Samba (4.20, 4.22) and the QNAP send it with no leading `\`, Windows with one; both are stripped. Refused on dialects
+  2.0.2, 2.1, 3.0.2 and by Windows before 10 / Server v1803.
+- ⚠️ **Class 18's name (`FileAllInformation`) is a fallback with two traps.** A server SHOULD send it EMPTY and current
+  Windows does, so ❌ never read an empty name as the share root. And the Windows versions that fill it (2008–2012 R2)
+  send "an absolute path" with an unspecified root, so only its last N components are used, N being the component
+  count the caller asked for. Samba sends `\dir\file`.
+- **Ordered for servers that cascade failures**: required queries first, class 48 last before CLOSE, so a refused 48
+  (common on older Windows) can't take the metadata or the class 18 fallback with it. Readers ask 18 before 48 for the
+  same reason. Writers ask 48 only: class 18 needs `FILE_READ_ATTRIBUTES`, which a write handle doesn't carry, and ❌
+  adding it to the write CREATE could make an open that works today fail with `ACCESS_DENIED`.
+- **A truncated name is never used.** The name buffer is 64 KiB (one credit, capped at `MaxTransactSize`), and a
+  `STATUS_BUFFER_OVERFLOW` answer counts as no answer: a name cut short can name a different file.
+- **Neither name usable → `Error::Protocol { NOT_SUPPORTED, QueryInfo }`** (`ErrorKind::Unsupported`), whatever
+  statuses the name queries carried: the CREATE succeeded, so all they can mean is "this server can't name it".
+  Identity is `Option` and never fails the call.
+- **DFS**: class 48 on a DFS share is share-relative even though the CREATE carried `server\share\path` (verified
+  against `smb-dfs-root`, Samba 4.20.6, 2026-09-23). `SmbClient::resolve` follows a link like `stat`, and the path is
+  then relative to the target share the caller's `Tree` points at afterwards.
+- Names come back through `decode_path` (Paths and the names SMB2 won't carry, above).
+
+## Timestamps and attributes (`times.rs`)
+
+Full rationale: `times.rs` module docs.
+
+- **Every time a caller leaves out goes as 0**, MS-FSCC § 2.4.7's "don't change", and unset attributes as 0 too. A `FileTime` with the top bit set (-1, -2, or a forbidden value as a signed FILETIME) is refused before sending, as `Error::Io(InvalidInput)`; -1/-2 are handle-scoped switches, not dates, and Samba reads -1 as "don't change" anyway.
+- **A server restamps a file when the handle that wrote it closes, unless that handle had its times set.** So a copy stamps the writer's own handle (`FileWriter::set_times`, which drains the WRITEs first) or sets by path after `finish`. A path stamp while the writer is open loses to its close, and a handle stamp holds through later writes (Samba's sticky write time; MS-FSA `UserSetModificationTime` on Windows). Both pinned against Samba 4.20.6 by `guest_a_writer_keeps_the_times_set_on_its_handle` and `guest_a_stamp_by_path_loses_to_an_open_writers_close`, and the writer stamp against a QNAP TS-464 by `nas_keeps_the_times_set_on_a_writers_handle` (2026-10-07).
+- **Attributes replace the file's whole settable set, never merge** (MS-FSA § 2.1.5.15.2). ❌ Never let 0 reach the wire for "none": it means "don't change", so `wire_attributes` sends empty as `NORMAL` and masks to `FileAttributes::SETTABLE` (Directory on a file is `STATUS_INVALID_PARAMETER`), which lets a consumer pass a source's reported attributes straight through. Samba 4.20.6 (defaults: `store dos attributes = yes`, `map readonly = no`) keeps Hidden and Read-only on files and directories and refuses to delete a Read-only file with `STATUS_CANNOT_DELETE` until it's cleared (`guest_a_readonly_file_refuses_deletion_until_cleared`, 2026-10-12).
+- **`set_times` opens with `FILE_WRITE_ATTRIBUTES` only, sharing everything, and no create option but `FILE_OPEN_REPARSE_POINT`**, so it works on directories, beside an open reader or writer, and on a link itself (§ Reparse points).
+- **Reads hand out what their CREATE already answered** (`FileDownload::info`, `FileReader::info`, `read_file_compound*_with_info`), so a consumer never needs a `stat` beside a read for the dates. Attributes too, and a listing's `DirectoryEntry::attributes` comes from the same `FileBothDirectoryInformation` bytes `is_directory` is read from. `FileDownload::info` is `None` only for `FileDownload::new` around a caller's own handle.
+- `SmbClient::set_times` is a mutation, so it takes `&Tree` and doesn't replay after a reconnect, like `rename`.
+
+## Reparse points: a path names the link, never its target
+
+A junction (`IO_REPARSE_TAG_MOUNT_POINT`) is a directory to every listing, and the server follows it on any CREATE without `FILE_OPEN_REPARSE_POINT` (MS-SMB2 § 2.2.13); a symlink it refuses to open through instead (`STATUS_STOPPED_ON_SYMLINK`, § 3.3.5.9). The Windows side is spec-derived, not verified against a Windows server. Samba is measured, and differs by version: `docs/notes/samba-symlinks-and-reparse-points.md`.
+
+- **Everything that describes or changes the entry a path names opens the reparse point itself**: `stat` and its siblings, `delete_file`, `delete_directory`, `delete_link`, `rename`, `set_times`. Without it, `delete_directory` on a junction to an empty folder deleted that folder and `rename` moved it, and on Samba 4.23 `delete_file` on a symlink deleted the target's file. Windows' own `DeleteFile`, `RemoveDirectory`, `MoveFileEx`, and `SetFileAttributes` do the same. On anything that isn't a reparse point the flag changes nothing. ❌ Don't drop it from these, and don't add it to reads, writes, or listings: those act on content, which is the target's.
+- **The tag comes from where the reparse bit is.** A listing's `EaSize` slot carries it when `FILE_ATTRIBUTE_REPARSE_POINT` is set (MS-FSCC § 2.4.8, § 2.4.17), so `DirectoryEntry::reparse_tag` costs nothing; `stat` asks `FileAttributeTagInformation` (class 35, § 2.4.6), last in its compound so a refusal can only cascade into the CLOSE (`a_refused_tag_query_still_stats_and_closes_the_handle`). The metadata an open hands back (`file_info_from_create`, `resolve`) has no tag, so `FileInfo::reparse_tag` is `None` there.
+- **`delete_link` has no file-or-directory condition** (create options are the flag alone), because a link is a directory on Windows and a file on Samba 4.23, which refuses `delete_directory` on one with `STATUS_NOT_A_DIRECTORY`. The disposition is still validated, so a real directory goes only if empty.
+- **`is_link` is the Name Surrogate bit, not a list of tags.** Dedup, cloud-files, and tiering placeholders carry the reparse bit too but are ordinary files to a walk, and the N bit (MS-FSCC § 2.1.2.1) is what tells them apart, including for tags `ReparseTag` has no name for.
+
+## Server-side copy (`copy.rs`)
+
+`FSCTL_SRV_COPYCHUNK` copies byte ranges between two files *on the server* — the data never crosses the wire. Two tiers, both on `Tree` (with `SmbClient` wrappers that route via `Connections::for_tree`):
+
+- **Convenience**: `server_side_copy_file` (whole file, truncating dest) and `server_side_copy_file_range` (a range at a chosen dest offset, non-truncating dest). Both open source (read) + dest (read+write), get a resume key, batch the copy, flush+close both, and never leak a handle on an error path (shared `copy_paths` helper).
+- **Primitives**: `request_resume_key` (source handle → opaque `ResumeKey`), `copy_chunks` (one IOCTL against an open read+write dest), and `server_side_copy_range` (batches over open handles). These take caller-held `FileId`s like `open_file` does; `open_file_readwrite` opens a dest and `close_handle` (now public) releases it.
+
+Gotchas / why:
+- **Dest needs read+write.** `FSCTL_SRV_COPYCHUNK` requires the destination open to carry `FILE_READ_DATA` *and* `FILE_WRITE_DATA` (MS-SMB2 3.3.5.15.6). The read+write opens grant both; a plain write handle would get `ACCESS_DENIED`.
+- **Limits negotiation is a normal path, not an error.** When a request exceeds the server's per-request limits it returns `STATUS_INVALID_PARAMETER` *with* a 12-byte `SRV_COPYCHUNK_RESPONSE` carrying the limits (MS-SMB2 3.2.5.14.3). `copy_chunks` surfaces that as `Ok(CopyChunkOutcome::Rejected { limits })`, not `Err`; `server_side_copy_range` starts at `ServerSideCopyLimits::CONSERVATIVE` (16×1 MiB / 16 MiB, the common Windows/Samba minimum) and re-batches within advertised limits, guarding against an infinite loop via "advertised == current → error".
+- **Unsupported servers are typed.** Old Samba / NAS firmware without copychunk return `STATUS_NOT_SUPPORTED` / `STATUS_INVALID_DEVICE_REQUEST`, classified `ErrorKind::Unsupported`. Consumers branch on it to fall back to read-then-write — no string matching.
+- **Positioned append pairs with it.** `create_file_writer_at(path, offset)` opens non-truncating (`FileOpenIf`) and seeds the writer's offset, so a consumer can server-side-copy a retained prefix into a temp, then append (the archive tail-rewrite shape). It checks nothing about the file, so it isn't for resuming an upload (§ Resuming an upload).
+
+Full behavioral detail lives in the `copy.rs` module rustdoc.
+
+## Streaming download entry points
+
+Three ways to start a `FileDownload`, all reading the same way (below):
+
+- `SmbClient::open_file_download(&mut self, &Tree, path) -> FileDownload<'static>` — follows a DFS link, and the
+  download owns a clone of the connection and of the tree it reads from (the link's target, when redirected), so the
+  client is held for the CREATE only. The link-following call for a consumer that keeps its client behind a lock: before
+  it, the only unborrowed way through a link was `FileReader`, positioned reads with no read-ahead.
+- `SmbClient::download(&mut self, &Tree, path)` — the same, borrowing the client for the download's life (kept for its
+  signature); delegates to `open_file_download`.
+- `Tree::download(&self, &mut Connection, path)` — takes the `Connection` directly, no link following. Use this when
+  you hold a `conn.clone()` and want to drive concurrent downloads on the same SMB session (each clone pairs with one
+  outstanding download; the receiver task multiplexes responses by `MessageId`).
+
+**How a download reads** (`stream.rs` + `read_ahead.rs`; the why and the numbers are in `read_ahead.rs`'s module doc and `benchmarks/read-ahead/results/`):
+
+- `Tree::download` reads 512 KiB chunks (`DOWNLOAD_CHUNK_SIZE`, capped at `MaxReadSize`) with `ReadAhead::Adaptive`: about `link rate × (RTT + headroom)` bytes still on their way, the headroom learned per connection (below), at least one READ, at most 4 MiB / 32 READs requested but undelivered. Chunks are delivered in file order from the front of `in_flight`; a short read re-requests its rest at the FRONT.
+- The window counts bytes still ARRIVING (drained at the measured rate), not bytes undelivered, and `receive_next` races the head READ against a timer for the next dispatch. That is what sends READ n+1 just before READ n finishes arriving, so a slow link never idles and nothing queues behind more than one chunk plus the headroom. ❌ Don't simplify it to "top up when a chunk is delivered": that either idles the pipe one RTT per chunk (sequential loses 11–16% at 3 MB/s) or queues a second chunk ahead of every `stat`.
+- **The rate is the link's capacity, not the download's pace** (`Window` § Measuring the link). A gap between two answers counts only if the later READ was sent at least one RTT before the earlier answer arrived, so it queued right behind it at the server; bytes over summed gaps across the last eight such gaps. Without that filter a 4 MiB download at +60 ms on a ~1 GB/s link shared ~24 MB/s (the window, never filling the 60 MB bandwidth-delay product, set the pace), and `quick_read_limit` streamed files one READ moves twice as fast. An error in `rtt()` only lowers it (too long discards good gaps, too short admits idle ones), and ❌ nothing may bias it up: an overestimate compounds files the link can't move quickly. No qualifying gap → the arrivals' own pace, a lower bound. Pacing uses the same rate; the slow-link tests are what keep that safe.
+- **Answers are timed by arrival.** The receiver task stamps each frame as it reads it (`Routed.arrived_at` → `WaiterGuard::arrived_at`), and `take_head` hands that to the window. Timed when the consumer takes the chunk, a slow consumer read the link low and one catching up after a stall read it several times too high (365 MB/s on a 50 MB/s link in the simulator). ❌ Don't add the stamp to the public `Frame`: all-public fields, so a new one breaks consumers' struct literals.
+- The RTT is NEGOTIATE's, lowered by the quickest small request answered since (`Inner::note_round_trip`: CREATE, CLOSE, QUERY_INFO, SET_INFO, ECHO, TREE_CONNECT/DISCONNECT, FLUSH; answers ≤ 4 KiB; never one parked with STATUS_PENDING; timed from registration so a queue only adds), and capped by the fastest READ. NEGOTIATE overstates whenever the first exchange is slow (175 ms against a 66 ms link on the benchmark rig, whose proxy dials the container on the first byte), and the fastest READ includes its own wire time, a whole chunk on a slow link; together they kept a 3 MB/s uplink a WRITE deeper than it needed. ❌ Don't count READ/WRITE/CHANGE_NOTIFY round trips: payload or a long wait rides along. Every sample is ≥ the real RTT, which is what makes a plain minimum safe.
+- **Both directions close the loop on what's on its way** (`Window` § Closing the loop). An answer raises the drained estimate to at least what's still unanswered less what the link carried since the latest answer landed (`read_ahead::Outstanding`), so TCP's slow start after idle can't leave a standing queue: a simulated 3 MB/s download at +200 ms kept 2.6 MB queued against a 690 KB target without it (`a_download_that_starts_in_slow_start_leaves_no_standing_queue`). Things that look like simplifications and aren't:
+  - ❌ **A download can't count "undelivered" as "unanswered".** A READ Samba answered early waits behind the head, and counting it as on its way idled a reordering link (`answers_the_server_reorders_are_not_mistaken_for_jitter`). `FileDownload::outstanding` asks every guard in `in_flight` whether its answer has landed (`WaiterGuard::has_landed`), which moves a routed answer into the guard without claiming it; `recv` / `try_recv` hand it out from there. Synchronous, so `next_chunk` stays cancel-safe. Pinned by `answers_that_land_out_of_order_are_seen_without_being_taken`.
+  - ❌ **Don't switch downloads to `Correction::Throughout`.** Downloads correct only on answers to their first flight (what went out before the first answer landed), where slow start bites. Mid-transfer, the open-loop drain also counts a server freeze as carried bytes, and the surplus that sends covers the next freeze: correcting throughout cost 7% through 150 ms freezes every second and 5% through 60 ms jitter in the simulator (a `stat` waited 56 ms at the median instead of 137). That's a tuning trade to settle on the benchmark grid, not a cleanup. Uploads (`WritePipe`) correct throughout, which is how they were measured.
+- **The headroom is learned per connection** (`Window` § Learning the headroom): how late answers come against an ideal full pipe, scored in ARRIVAL order, into RFC 6298's mean + 4 × deviation (`read_ahead::Lateness`, seeded from the first sample), clamped to 30–500 ms, 250 ms before any sample. It was picked over the windowed max (16 answers or 10 s, still in `tuning.rs`) by minimax regret on the benchmark grid (worst cell 44% against 170%, `benchmarks/read-ahead/results/self-tuning.md`): it leaves recurring server freezes mostly uncovered (~4–7% throughput) and keeps listings short through them. Things that look like simplifications and aren't:
+  - ❌ **Don't score an answer as it's delivered.** Chunks are delivered in file order, so an answer that arrived early is heard of late; scored then, every pair Samba swapped reads as a chunk's time of lateness (52 ms at 10 MB/s). `settle` waits until every request still in flight went out less than one RTT before the answer. Pinned by `answers_the_server_reorders_are_not_mistaken_for_jitter` (red without it).
+  - ❌ **Don't score the idle time alone.** A stall the backlog partly covered shows only the uncovered part, and the headroom then settles just under the stall it keeps failing to cover (78 ms against 150 ms freezes in the simulator). A late answer adds how long the answer before it queued, the backlog the stall ate first.
+  - ❌ **Don't lower the noise tolerance back to a timer tick.** Idle under max(5 ms, a quarter of the answer's wire time) counts as none (`LearnedHeadroom::noise_floor` / `noise_share`). On a full pipe every answer has the window's own queue ahead of it, so a stamp a few ms late or a rate a few percent high, read as lateness, adds that whole queue, and the headroom stays pinned at the queue the cold ramp built: 113–118 ms on a steady 30 MB/s Docker link, where the simulator's perfectly spaced answers never showed it. Pinned by `a_steady_link_stamped_unevenly_still_learns_a_small_headroom` (red at 1 ms).
+  - ❌ **Don't score a late answer as `idle + backlog` unless the idle is at least a third of that backlog** (`LearnedHeadroom::backlog_share`). The backlog is mostly the window's own margin, so the unconditional form has a fixed point at whatever margin the window has: a noise floor only moved where it latched (133 ms at +1 ms / 30 MB/s once the RTT estimate tightened). With the share it's a contraction, and a wobble w holds the headroom at most ~4w. Pinned by `a_steady_link_converges_near_the_floor_whatever_its_speed_and_distance` (5 RTTs × 3 rates, jitter and rate wobble; red at +1…+60 ms / 30 MB/s without it). `MeanDeviation` seeds from its first sample (RFC 6298 § 2.2); seeded with the cold margin it climbed to the ceiling (`the_mean_and_deviation_start_from_the_first_answer_not_the_cold_margin`).
+  - ❌ **Don't add a late answer's delay to the next one as backlog, and don't score the first flight.** The backlog term applies only after an on-time answer (late ones in a row are a slower link, and compounded 245 → 489 → 1,072 ms); answers to requests sent before the transfer's first answer landed cross in TCP's post-idle slow start and taught a 3 MB/s uplink ~190 ms it kept for the whole file. Pinned by `a_run_of_late_answers_is_not_counted_twice` and `a_link_that_starts_slower_than_the_hint_leaves_no_standing_queue`.
+  - ❌ **If the windowed max ever ships again, don't shorten its memory to "a few answers".** A covered stall is invisible, so a memory that forgets it once it stops showing shrinks straight back under it; 16 answers are milliseconds on a fast link. The `span` in time is what holds it. Tests about how answers are scored use it (`windowed_max()` in the tests), since its headroom is the worst sample itself.
+- **The ramp keeps the cold margin until a full-pipe gap exists.** Before that the rate is one READ over its round trip, and only a second READ sent with the first answer measures the link; a 30 ms margin does that only when a chunk crosses the wire in under 30 ms. Pinned by `a_small_learned_headroom_still_opens_the_window_on_a_distant_fast_link`.
+- **The tunables live in `client/tuning.rs`** (`Tuning`: `Headroom::Fixed` or `Headroom::Learned` with the estimator, floor, ceiling, and cold value; `RateMeasure::LinkCapacity` vs the old `Deliveries` measurement), read through `Tuning::current()` by every window, so a benchmark can compare candidates. The module is crate-private; the unstable `__bench-tuning` feature re-exports it as `smb2::__bench` with `set_tuning(Option<Tuning>)`, a process-wide override for `benchmarks/read-ahead/`. ❌ Not for consumers, no SemVer. The simulator in `read_ahead.rs`'s tests (`Link`) takes per-READ server delays (reordering, jitter), server freezes (`with_freezes`), and per-chunk consumer delays; `compare_headroom_candidates` (ignored) prints every candidate across a grid of simulated links.
+- A download leaves its measured rate and its lateness memory on the connection (`Connection::note_read`, 30 s TTL, cleared on revival) and the next one starts from both (`read_link_hint`), so a folder of 1 MiB files doesn't pay a round trip per file and learns its headroom as one stream. Only a rate over 2+ answers is shared: one READ's is mostly its round trip.
+- **Consumers read the same rate** through `Connection::download_rate_hint` (bytes/s) and `Connection::quick_read_limit`, the "one compound READ or stream?" cut-off: what the link moves in `QUICK_FRAME_BUDGET` (250 ms, `read_ahead::quick_read_limit`), at least one chunk, at most `MaxReadSize`. Keep the arithmetic there, so consumers don't each reinvent it. ❌ Don't couple the budget to the learned headroom: it's how long a listing may wait behind one frame, a product number, and on a quiet LAN the headroom shrinks to 30 ms, which would stream small files at an extra round trip or two each.
+- ❌ **`next_chunk` must stay cancel-safe**; consumers drop it in `select!` loops. The head is awaited IN PLACE (`Connection::await_response_in_place`, the guard stays in the queue), `take_head` is synchronous, and a received chunk waits in `ready` across the awaits after it (next READs, sending the CLOSE). Each has a test; the pre-fix code lost the last chunk to a dropped CLOSE, and the prototype lost whole chunks.
+- **CLOSE is sent, not awaited, as the last chunk lands** (`start_close`, via `Tree::dispatch_close`); its guard waits in `closing` and the `None` call after the last chunk collects it (`finish_close`, in place, so dropping that call is safe too). Awaiting it before returning the last chunk cost every download one round trip (+200 ms: 4 MiB took 830 ms streamed against 411 ms compounded). Errors: a CLOSE answered with an error is `Some(Err)` on the `None` call; a CLOSE that couldn't be SENT is held in `close_failed` and surfaces there too, so the last chunk (good data) is still handed out. A download dropped after its last chunk has closed its handle; only a CLOSE error goes unseen. `done` is set before the send, so a caller dropped mid-send never sends a second CLOSE.
+- **Response deadline:** a READ sent ahead is under the deadline only while awaited, and its idle clock runs from `mark_sent`. A response that already landed is returned before any tick, so a consumer that stalls never times out a READ the server answered. The window caps the wait of the last queued READ at about one chunk plus the headroom (500 ms at most) on a slow link.
+- **Cancel:** dropping a download abandons what's in flight: at most the adaptive window (about one chunk plus the headroom's worth of transfer on a slow link, 4 MiB on a fast one). No CANCEL is sent: Samba has usually answered the READs already, so it would buy nothing.
+
+## Uploads
+
+Every pipelined upload (`FileWriter`, `FileUpload`, `Tree::write_file_pipelined`, `Tree::write_file_streamed`, `SmbClient::write_file_with_progress`) runs on ONE engine, `WritePipe` (`write_pipe.rs`), paced by the same `Window` as a download. The why and the numbers: `write_behind.rs`'s module doc and `benchmarks/read-ahead/results/adaptive-uploads.md`.
+
+- 512 KiB WRITEs (`UPLOAD_CHUNK_SIZE`, capped at `MaxWriteSize`, lowered by `fundable_chunk` per WRITE) and `WriteBehind::Adaptive`: about `upload rate × (RTT + headroom)` handed to the connection but unconfirmed (the headroom learned from late confirmations, kept apart from the download one), at least one WRITE, at most 4 MiB / 32 WRITEs. At 375 KB/s a `stat` waits 1.5 s at most during an upload, where the old 32 × `MaxWriteSize` window made it wait 23 s. ❌ Don't add a second write loop beside the pipe: the three that existed each had their own window, and a fix landed in one of them at a time.
+- **Each WRITE is on the wire before the pipe moves on** (`dispatch_with_credits`, then its guard's answer awaited in a `FuturesUnordered`). ❌ Don't go back to pushing unpolled `execute_with_credits` futures: nothing sends them until the next poll, so a WRITE the window released could sit unsent while the consumer read its disk, and the window's dispatch clock would be fiction. The cost is that a writer has one frame in the send queue at a time, which the socket buffer hides.
+- **What a confirmation measures**: the server having every byte, plus its disk and half a round trip. The gap between two confirmations is the uplink's time for the second WRITE when it was queued behind the first, the same full-pipe test as for READs, and each is timed by arrival (`Landed.arrived_at`, from the guard), so a producer that polls its answers late doesn't skew it. It reads low (answers share the downlink; a slow disk holds them), never high. The rate is shared on the connection apart from the download one (`note_write_rate`, `upload_rate_hint`, same 30 s TTL, cleared on revival), because most links are asymmetric.
+- **`Connection::quick_write_limit`** is the one-frame cut-off: `max(512 KiB, upload rate × QUICK_FRAME_BUDGET)` (250 ms, not the learned headroom), capped at `compound_write_limit()` (which wins over the floor, and can be 0). It never exceeds `compound_write_limit`, so a consumer that promised one frame by it can still send that frame after the limit moved.
+- **`FileWriter::write_chunk` is cancel-safe**: pushed bytes leave `pending_data` only once their WRITE is dispatched. A WRITE caught mid-send can go out twice, same bytes, same offset. Pinned by `dropping_write_chunk_while_it_waits_for_room_loses_nothing`.
+- **Errors**: the pipe drains what's in flight (`abandon`) before handing an error back; the owner closes the handle only on a WRITE the server refused (`Error::Protocol { command: Write }`) answered short (`Error::InvalidData`), or answered with a response that failed its signature check (`Error::SignatureInvalid`, so nobody knows what landed), since any other error may be the connection itself.
+- **A short WRITE is an error, never a partial confirmation** (`WritePipe::land`). The WRITEs after it don't know about the hole, so counting the part that landed would let a checkpoint vouch for bytes that were never written. `Count` is how many bytes the server wrote (MS-SMB2 § 2.2.22, § 3.2.5.12), and nothing says it has to be all of them.
+- `WriteBehind::Fixed(n)` plus `with_chunk_size(MaxWriteSize)` is the escape hatch to the old shape; only `FileWriter` takes the knobs.
+
+For full control, `Tree::open_file` (returns `(FileId, u64)`) plus `FileDownload::new` let callers build custom chunk
+loops with non-default `chunk_size`. Most users shouldn't need this — `read_file_compound` (1 RTT, or `read_file_compound_sized`
+when the size is already known) handles small files and `Tree::download` / `SmbClient::download` handle the streaming
+case.
+
+`FileWriter::flush_checkpoint` is the one non-terminal flush: send, drain, FLUSH, keep the handle (§ Resuming an upload).
+
+FileWriter has two terminal operations:
+- `finish()` — send all buffered data, drain in-flight WRITEs, FLUSH (fsync on the server), CLOSE. Use on normal completion.
+- `abort()` — discard unsent data, drain in-flight WRITEs to keep credits/message-ids in sync, skip FLUSH, best-effort CLOSE. Use on cancellation or error paths where the partial remote file is going to be deleted anyway — `abort()` saves the fsync round-trip. The caller is responsible for deleting the partial remote file.
+
+Both consume `self` so write-after-close/abort is a compile error. A writer dropped without either closes its handle unflushed, like `abort()` without the wait (§ Dropping a handle); so does one whose `finish()` failed before its CLOSE (a refused FLUSH, say).
+
+## Dropping a handle: the CLOSE is queued before `Drop` returns
+
+Every type that owns an open handle (`FileWriter`, `FileReader`, `FileUpload`, `FileDownload`, `DirectoryReader`, `Watcher`) closes it when dropped still open, through `Tree::close_dropped_handle`. Consumers drop these routinely: a copy driver that stops on the first failure drops every writer in flight, and a handle left open keeps the file locked against the consumer's own cleanup (`STATUS_SHARING_VIOLATION` deleting the temp file it just wrote, Cmdr 2026-10-19) for as long as the session lives.
+
+- **Queued synchronously, so ordered.** `Drop` can't await, and a spawned CLOSE would race the owner's next request: the delete right after the drop got there first. `dispatch_without_waiting` takes a credit and a queue slot without waiting, builds and signs the CLOSE, and queues it for the writer task before `Drop` returns (§ The send path). It lands after every request the handle already queued (a writer's in-flight WRITEs: `WritePipe::dispatch` returns only once its frame is queued, so a dropped `write_chunk` leaves nothing half-sent behind it) and before anything the owner sends next. A spawned task then only waits for the answer and logs a failure at `debug`; with no runtime in reach (`rt::try_spawn` answers `None` instead of panicking) the CLOSE goes out all the same and its answer is discarded.
+- **Fallback, unordered.** No credit on hand, or a full queue: the CLOSE is sent from a spawned task instead, with no ordering promise. No runtime either: logged at `debug`, and the handle stays open until the session ends.
+- ❌ **Never a second CLOSE.** Each type marks the CLOSE as started *before* sending it (`done` / `closed` / `close_started` / `State::Closing`), and `Drop` sends nothing once it is, even when the future that started it was dropped before its frame got out (that handle then stays open until the session ends). A second CLOSE is worse than a leak: the server may have given the same file id to a new open in between (Windows reuses volatile ids), and the stray CLOSE would close somebody else's file on this session.
+- **A handle from a session that ended sends nothing** (`pinned_session_is_current`), as with an explicit close: the server let go of it with the session.
+- **A handle holding the connection's last clone** takes the connection down with it on drop (`Inner::drop` stops the writer task, so the queued CLOSE never goes out). That's fine: the socket closes, and the server releases every handle with the session.
+- **Known limit: an `async fn` dropped mid-call.** A `Tree` method holding a handle only for the call (`write_file_compound`, the pipelined reads and writes, `copy`, and so on) closes it as its last step, and a caller dropping that future between the CREATE and the CLOSE leaves the handle open until the session ends. The widest window is the CREATE's own answer: until it arrives the client doesn't know the file id, so nothing caller-side can close it. Fixing that needs the receiver task to close the handle of a CREATE answered after its caller left (and not one a compound already closed): issue #24.
+
+Pinned by the `stream.rs` close-on-drop tests (`file_writer_dropped_mid_upload_closes_before_anything_sent_after`, `..._outside_any_runtime_still_closes`, `a_finished_or_closed_handle_sends_no_second_close_on_drop`, and one per type), `directory.rs` `a_dropped_reader_closes_after_its_query_and_never_twice`, and `watcher.rs` `close_on_drop_tests`.
+
+## Resuming an upload
+
+`FileWriter::flush_checkpoint` sends what's buffered, drains the pipe, sends a standalone FLUSH, and returns a `WriteCheckpoint { offset, identity }` without closing. A caller persists it and resumes from it after a crash or a reconnect. Pinned by `resume_tests.rs` and the Docker `guest_a_writer_checkpoint_names_the_file_it_flushed`.
+
+- **The offset is `WritePipe::offset` after a drain, and it's set only after the FLUSH succeeded.** With short WRITEs refused (§ Uploads), a drained pipe means every byte before it was confirmed. ❌ Don't report `confirmed()` instead: it's this writer's count, and a writer opened at an offset starts past zero.
+- **Cancel-safe by construction**: `send_pending`, `drain`, and the FLUSH are each safe to drop, and `durable_offset` is written with no await after the FLUSH. A dropped FLUSH proves nothing, so the next call sends its own.
+- **The FLUSH is standalone**, so Windows' async-must-end-the-compound rule (pitfall 33) can't apply.
+- **The identity comes from the writer's own CREATE** (`OpenFor::Writing`: class 6 + `FileFsVolumeInformation`, the same pair `durable.rs` uses, and for the same Samba reasons), so it costs no round trip and names the file this handle writes. Neither class needs an access right, so the write handle's missing `FILE_READ_ATTRIBUTES` doesn't matter: Samba 4.20.6 answers both on it (2026-10-14). ❌ Don't ask at checkpoint time instead: compounded with the FLUSH, the FLUSH has to go last (Windows), and a refused query ahead of it can take the FLUSH down with it on a server that cascades failures.
+- **With the `serde` feature a checkpoint is `Serialize` + `Deserialize`**, and so is `FileIdentity`, the one type inside it (`a_checkpoint_round_trips_through_json`). Deserializing skips `WriteCheckpoint::new`, which is fine: neither type has an invariant, and the resume re-proves everything against the server anyway.
+- **`FileIdentity::is_proof`: both halves non-zero, or the writer has no identity.** Stricter than a durable reclaim, which tolerates a missing volume serial because its `CreateGuid` is a second proof; a resume has only this one, and a share can span mount points whose inode numbers overlap. A checkpoint without an identity still says how far the file is durable; it just can't be resumed.
+
+`open_file_writer_resume` (`Tree::resume_file_writer`, `SmbClient::resume_file_writer`) is the other half: one round trip (the writer open with `FileOpen`, so the identity rides along and the length comes from the CREATE's `EndOfFile`), then every check before any WRITE. Pinned by `resume_tests.rs`, the Docker `guest_an_upload_resumes_from_its_checkpoint_after_a_crash` and `guest_a_resume_refuses_a_file_that_changed_under_it`, and the QNAP `nas_resumes_an_upload_from_its_checkpoint_on_a_new_connection` (2026-10-14).
+
+- **Refusals are `Error::ResumeRefused { reason: ResumeRefusal }`, `ErrorKind::ResumeRefused`, never retryable**: `Missing` (CREATE `OBJECT_NAME_NOT_FOUND` / `OBJECT_PATH_NOT_FOUND`), `IdentityUnavailable` (no identity in the checkpoint, refused before anything is sent; or none now), `Replaced`, `Truncated { length }`. Every other error comes back as itself, so `is_retryable` means exactly "try the resume again later". Each refusal after the CREATE closes the handle (`abort`, which is only a CLOSE since nothing is in flight).
+- ❌ **Never `FileOpenIf` here**: a created file would start with a hole where the checkpointed bytes were. That's the exact corruption `create_file_writer_at` (patching, no checks) produces on a resume, which is why its docs point here.
+- **Identity before length**: a different file's length says nothing.
+- **Longer is fine, and `finish` trims it.** WRITEs that landed after the checkpoint and before the crash leave a tail; the writer starts at the checkpoint and overwrites, and `finish` cuts off what's still past its last byte (SET_INFO `FileEndOfFileInformation`, before the FLUSH so the flush covers the length, and only when the open-time length exceeds the end, so most resumes pay nothing). A finished resume then equals a fresh upload of the same source, even one that shrank. ❌ Never trim at a checkpoint (the caller may be about to overwrite that tail) or on `abort` (giving up, not finishing). The writer shares nothing (`ShareAccess(0)`), so nobody can grow the file between the open and `finish`.
+- **Known limit: a filesystem that reuses an index number** for a file deleted and recreated at the same path would pass the identity check. Samba 4.20.6 on the Docker fixture gave a fresh one on each of 5 delete-and-recreate rounds (2026-10-14), so it isn't pinned by a test; a rename over the path (the realistic "replaced") always differs, since both files exist at once.
+- **After a crash the dead session's open can hold the file for a moment**: a writer shares nothing, so a resume racing the server's cleanup gets `SharingViolation` (an ordinary error, not a refusal). The Docker and NAS tests wait it out.
+
+## Session setup flow
+
+1. Send NTLM NEGOTIATE in SESSION_SETUP
+2. Receive STATUS_MORE_PROCESSING_REQUIRED with challenge, update preauth hash
+3. Send NTLM AUTHENTICATE in SESSION_SETUP, update preauth hash with request only
+4. Receive STATUS_SUCCESS (do NOT include in preauth hash)
+5. Derive signing/encryption keys via SP800-108 KDF
+6. `authenticate_final_response`: prove the STATUS_SUCCESS response before reading its `SessionFlags`
+7. Hand the signing key to the connection (`install_signing`), with `NegotiatedParams::signing_algorithm` (on 3.1.1, the server's pick from the signing context; see `src/crypto/CLAUDE.md`), or `None` for a guest or anonymous session, which also drops a previous session's key
+8. Hand the encryption keys to the connection (`install_encryption`): active if the session requires encryption, staged for a share that will ask otherwise (§ Encryption)
+
+Step 6 exists because the final response's flags decide whether signing and encryption turn on at all, and nothing
+else checks that response (the receiver only verifies once signing is active). Kerberos goes through the same function.
+Rules, in order (AGENTS.md pitfall 30):
+
+- **Empty username:** a guest or anonymous login the caller asked for. Nothing to prove; the server's flags stand.
+- **Username `Guest` (any ASCII case, exactly), `IS_GUEST` or `IS_NULL`:** accepted, since that's what the name asks for
+  (`is_guest_on_purpose`). Consumers log in to guest shares this way, and some servers take the named `Guest` login but
+  refuse an anonymous one. Answered with a full session, it's a named account from here on. ❌ Don't widen the match to
+  look-alikes (`DOMAIN\Guest`, `guests`).
+- **Named account, `IS_GUEST` or `IS_NULL`:** `Error::GuestSessionRefused` (its own `ErrorKind`, so a consumer can say "check the password" without matching text). Samba's `map to guest = bad user` does this for a wrong
+  password, and it's also what tampering looks like. ❌ Keep this before the signature check: a genuine guest response is
+  never signed, so the other order reports a wrong password as a bad signature.
+- **Named account, SMB 3.x:** must carry `SMB2_FLAGS_SIGNED` and verify with the new signing key, else
+  `Error::SignatureInvalid` (`Missing` when unflagged, `Mismatch` when it doesn't verify; `command` is `SessionSetup`).
+- **Named account, SMB 2.x:** verified if flagged signed. The spec asks nothing more, and with guest refused there is no
+  flag left to downgrade.
+- Kerberos answering `STATUS_MORE_PROCESSING_REQUIRED` goes through the same rules. That response is never signed, so
+  on 3.x the login fails there rather than carrying on with a half-established session.
+
+## Encryption
+
+Encryption is activated when the session flags include `ENCRYPT_DATA` or a share has `SMB2_SHAREFLAG_ENCRYPT_DATA`. When active:
+- Outgoing messages are wrapped in TRANSFORM_HEADER (protocol ID 0xFD) with a monotonic nonce
+- Incoming messages with 0xFD are decrypted before processing
+- Signing is skipped (AEAD provides authentication)
+- Compound chains are encrypted as one unit (pitfall #9)
+
+**The keys live on the `Connection`, and only there** (`CryptoState`, beside the signing key). Session setup's last step (`session.rs` `establish`) hands them over: `Connection::install_encryption(keys, active)` replaces whatever an earlier session left, active when the session encrypts, staged inactive otherwise, and `install_signing` does the same for the signing key. Both take `None` for a guest or anonymous session (it shares no key with the server), so the previous session's keys go with it (`a_guest_setup_after_a_signed_session_drops_the_old_keys`). Every key-receiving `Connection` method is crate-private. `Session` holds no key at all (so it's a plain `Clone + Debug` record). A revival's `install_transport` resets `CryptoState`, so staged keys die with their session like everything else (§ Reconnection); a second `Session::setup` on the same connection starts from its own keys and its own verdict, so a share the previous session encrypted for doesn't leave this one encrypting with keys the server dropped. Staged keys still decrypt incoming TRANSFORM frames. Diagnostics report a cipher only once something is encrypted with it.
+
+**Share-level encryption is `Tree::connect`'s, for every caller**: `tree.rs` `tree_connect` is the one TREE_CONNECT (`Tree::connect`, which `connect_share` and every DFS target's `ensure_tree` use, and the IPC$ trees in `shares.rs` / `dfs.rs`). A share flagged `SMB2_SHAREFLAG_ENCRYPT_DATA` on SMB 3.x calls `Connection::encrypt_for_share`, which turns the staged keys on. Gotchas:
+- ❌ **Encryption goes on BEFORE `validate_negotiate`.** MS-SMB2 § 3.2.4.1.8 encrypts everything on such a tree, the validation IOCTL included, and a server enforcing the flag would refuse it in the clear, which reads as a failed validation and tears an honest connection down. An encrypted answer is vouched for by the AEAD the way a signature would be. Pinned by `validate_negotiate_tests.rs` `on_an_encrypting_share_the_validation_goes_out_encrypted`.
+- **No staged keys (no cipher negotiated) on a share that asks is a refusal**: `Error::EncryptionUnavailable { share }` and a TREE_DISCONNECT, before anything else goes out on the tree.
+- **`encrypt_for_share` checks the pin inside the crypto lock**: a pinned clone whose session is gone gets `HandleInvalidated` rather than turning on a later session's keys for a share flag that says nothing about it.
+- Pinned on the low-level path by `session.rs` `a_low_level_tree_connect_to_an_encrypting_share_encrypts` / `..._without_a_cipher_is_refused` and the Docker `encryption_low_level_tree_connect_encrypts_a_share_that_requires_it` (`smb-encryption-aes256` `encrypted`).
+
+- **Only a negotiated cipher encrypts** (`NegotiatedParams::cipher`, `Connection.CipherId`): AES-128-CCM on 3.0 / 3.0.2 when the server granted `SMB2_GLOBAL_CAP_ENCRYPTION`, the server's pick on 3.1.1. NEGOTIATE has to send that capability for Samba to pick anything (#32). Without a cipher, `session_keys` derives no encryption keys.
+- **Demanded but not negotiated is an error, never a guess**: a session with `ENCRYPT_DATA` (`session_cipher`) or a share with the encrypt flag on a connection with no cipher fails with `Error::EncryptionUnavailable` (the share is disconnected again). ❌ Don't bring back the AES-128-CCM fallback: the server decrypts nothing with a cipher it never agreed to, and the fallback is what kept the missing capability bit hidden. Below 3.0 both flags mean nothing and are ignored. MS-SMB2 § 3.2.5.5 would have the client ignore a share's flag without a cipher; refusing is the deliberate, safer reading.
+- **Keys** follow `crypto/CLAUDE.md` § Key derivation: the signing key is always 128 bits, and AES-256 keys come from the full Kerberos key. `Session::setup` and `setup_kerberos` both go through `session_keys` with the whole key the authentication produced, so the two can't drift.
+- **`ClientConfig::require_encryption` encrypts unasked, or fails the login.** It's a flag on `Inner` (`Connection::set_require_encryption`, so a revival and a DFS target's connection keep it) that `session_cipher` reads: with it, the session encrypts with the negotiated cipher whatever `ENCRYPT_DATA` says (servers answer an encrypted request encrypted), and no cipher, a dialect below 3.0, or a guest or anonymous session is `Error::EncryptionRequired`. It's a config field rather than only a setter because the session setup inside `SmbClient::connect` runs before a setter could reach it. Pinned by `required_encryption_encrypts_unasked_or_refuses` and the Docker `require_encryption_refuses_the_clear_and_encrypts_unasked`.
+
+## Secure negotiate (`FSCTL_VALIDATE_NEGOTIATE_INFO`)
+
+Below SMB 3.1.1 nothing else proves the NEGOTIATE wasn't rewritten: an on-path attacker taking 3.1.1 (whose preauth hash would notice) and the ENCRYPTION capability out of the request leaves a session that signs but sends everything else in the clear, against any server that accepts an older dialect (Samba's defaults do). `Connection::validate_negotiate` closes that (MS-SMB2 § 3.2.5.5, § 3.2.5.14.12). Pinned by `validate_negotiate_tests.rs` (one test per branch of the answer matrix) and the Docker `a_downgraded_negotiation_fails_at_the_first_tree_connect` / `an_honest_negotiation_below_3_1_1_validates_and_works`, which rewrite the NEGOTIATE through an in-test proxy.
+
+- **Every successful TREE_CONNECT calls it**, through `tree.rs` `tree_connect` (`Tree::connect`, and both IPC$ connects in `shares.rs` and `dfs.rs`), so the low-level path is covered too, and nothing goes out on a tree before the check except the share's encryption, which goes on first (§ Encryption). ❌ A new TREE_CONNECT site must go through `tree_connect`.
+- **It sends something once per NEGOTIATE at most.** `Inner::negotiate_validated` is cleared by `negotiate()` itself, so a revival validates its own. It sends nothing on 3.1.1, or while the session doesn't sign (a guest or anonymous session can't sign the request; a later signing session on the same connection validates at its first tree connect).
+- **The request repeats what NEGOTIATE sent** from the same constants (`CLIENT_CAPABILITIES`, `CLIENT_SECURITY_MODE`, `Dialect::ALL`, the connection's `ClientGuid`); the answer is compared with `NegotiatedParams` (dialect, `server_guid`, `security_mode`, `capabilities`). ❌ Don't change what NEGOTIATE sends without going through those constants.
+- **The answer matrix**: a matching signed answer validates; a mismatch, `STATUS_ACCESS_DENIED`, any other unexpected status, an answer that fails its signature check (the receiver refuses an unsigned one, pitfall 29), or the server closing the connection all tear the connection down (`mark_dead`) and return `Error::NegotiateValidationFailed` (its own `ErrorKind`, not retryable). A signed `STATUS_NOT_SUPPORTED`, `STATUS_INVALID_DEVICE_REQUEST`, or `STATUS_FILE_CLOSED` is a server that doesn't implement the FSCTL (Windows before 8, some NAS firmware) and is accepted, as the Linux client and Windows do. Any other error (a timeout) fails the tree connect as itself and leaves the connection unvalidated.
+- **Samba answers a mismatch by hanging up, not with a status** (Samba 4.20, 2026-11-03), so `Disconnected` during the check counts as a failed validation. It answered the honest case on 3.0.2 and on 2.1 with a matching, signed answer. ❌ Don't "repair" a stripped dialect list: a rewrite that only takes 3.1.1 out still fails, because the server compares the dialects it received with the ones we say we sent.
+- **No LOGOFF on the way out**, though § 3.2.5.14.12 asks for one: the link is the suspect, and the socket closing ends the session on the server anyway.
+
+## Reconnection
+
+Full rationale on `Connection::reconnect_if_needed` and `ReconnectPolicy`.
+
+**A revival happens in place, under the existing `Arc<Inner>`.** `FileWriter`, `FileReader`, `Watcher`, and every pipelined task own a `Connection` clone; minting a new `Connection` would leave all of them permanently dead and force the consumer to rebuild the world. ❌ Don't "simplify" this back to returning a fresh `Connection`.
+
+- **Armed by the consumer, never assumed.** `Connection::set_reviver` supplies the two things this crate deliberately doesn't keep: an address and credentials. `ClientConfig::auto_reconnect` installs one built from the config. With none installed a dead connection reports `Error::Disconnected` and stays dead.
+- **Written for a stampede.** A 32-deep pipeline discovers the same dead session 32 times at once; `reconnect_if_needed` dials once and everyone else returns off the same attempt (`revive_lock` + the `revivals` counter, which is bumped only on success so the double-check can't see a half-built session).
+- **Every bound lives in `ReconnectPolicy`.** The wall-clock budget wraps the ENTIRE revival, not each attempt: a per-attempt timeout multiplies by the attempt count, and an attempt that parks forever never reaches the second one. A failed revival's verdict stands for `failure_cooldown`, or each caller pays the full budget in turn (32 × 60 s is the unbounded hang again).
+- **`install_transport` erases the dead session completely** and in a fixed order: tear down (which sets `disconnected` under the waiters lock), reset, rebuild, clear `disconnected` LAST. ❌ Nothing may carry over — a stale credit window out-spends the new server, a stale message id makes the server drop us for a sequence gap, stale keys fail verification on every frame. `send_queue_depth` is the deliberate exception (resetting it underflows a caller mid-increment).
+- **The plumbing is respawned, not just the socket.** The keepalive, the connection sweeper, and the receiver all exit for good on `disconnected`, so a revival that only swapped the transport would come back with no liveness detection, silently. `spawn_plumbing` is shared with construction so the two can't drift.
+- **The consumer always finds out**: `reconnects_succeeded` / `reconnects_failed` / `reconnect_attempts` counters (always on, answer "was this link quietly flaky?" after the fact), log lines, and a pushed `ReconnectEvent` via `Connection::on_reconnect` for a UI that wants to say "reconnected, resuming" while it happens.
+- **`SESSION_SETUP` announces `PreviousSessionId`** after a revival (`Connection::previous_session_id`), which is how a client says "this is me again" — MS-SMB2 § 2.2.5. Without it the server holds the dead session's state (open handles, so share-mode locks) until its own timeout. A consumer that builds a NEW client instead of reviving seeds it with `ClientConfig::previous_session_id` (from the old `SmbClient::session_id`) or `Connection::set_previous_session_id`; a successful setup clears it, a refused one keeps it. Gotchas, all pinned by `a_replacement_client_frees_the_old_sessions_handles` / `samba_keeps_a_replaced_guest_sessions_handles` in `tests/docker_integration.rs`:
+  - ❌ **The server ends the named session whether it's dead or not**, so a live one is cut off; its later requests fail as `Error::SignatureInvalid`, because Samba's `STATUS_USER_SESSION_DELETED` comes back unsigned and § 3.2.5.1.3 says discard it.
+  - **Samba ignores it for a guest login** (`smb2srv_session_close_previous_send` skips tokens without authenticated users; Samba 4.20.6, 2026-10-20).
+  - **Windows 8.1+ closes the replaced session's durable opens too** (MS-SMB2 product notes <337>, <351>), so it works against `reclaim_durable_handle`.
+- **A handle from the dead session refuses to talk to the new one** (`Connection::pinned_to_session`, AGENTS.md pitfall 35). Every `FileReader`, `FileWriter`, `FileDownload`, `FileUpload`, and `Watcher`, and every `DirectoryReader` and call that holds a file id across round trips (`list_directory*`, the pipelined and streamed reads and writes, `copy_paths`), sends through a clone pinned to the generation and session id it had before the CREATE. Once either moves, every request from that clone fails with `Error::HandleInvalidated` before it spends a credit or reaches the wire, because the new session numbers its ids from scratch and the same file id can be a different file there. Closing (`close`, `abort`, a download's CLOSE) a handle like that sends nothing and succeeds; `finish` fails, since the data never landed. Gotchas:
+  - ❌ **Pin BEFORE the CREATE**, and send everything the handle does through that one clone. Pinned after it, a revival that lands between the two stamps the dead file id with the new session. `SmbClient`'s DFS-following openers pin inside the `beside_tree` closure and return the pinned clone with the handle for this reason.
+  - ❌ **The session id goes into the header from the check, never re-read.** A revival after the check still sends the dead session's id, which the new session refuses; re-reading would give stale ids the new session's credentials.
+  - **Both generation and session id**, because the generation ticks only once a whole revival has succeeded (it still matches through the new session's NEGOTIATE and SESSION_SETUP, when the session id is already wiped), and a second `Session::setup` changes the session id with no revival at all. A pin with no session id is refused too.
+  - Re-pinning keeps the original pin, so a handle constructor can pin whatever it's given without laundering a stale clone into a current one.
+  - **A `Tree` is pinned too**, at `Tree::connect` (taken before the TREE_CONNECT), and every `Tree` method sends through `Tree::pinned_conn`. A new session numbers its tree connects from scratch, so a stale tree's id can be another share there; before this, a `delete_file` on a stale tree went out with it. The pin also names the connection (its `ClientGuid`), so a tree used on a connection other than its own (a DFS target's tree on the primary) is refused, even when both sessions have the same id. A `Tree` built by hand has `pin: None` and isn't checked.
+  - **Handles take the tree's pin** (`tree.pinned_conn(&conn).pinned_to_session()`), so a stale tree can't open a fresh-looking handle. `Connection::pinned_to` combines two pins by keeping whichever isn't current: the request must fail if either is stale.
+  - **`recover_tree` still heals the replaying calls**: `session_is_gone` counts `HandleInvalidated`, so a stale tree on a connection somebody else already revived reconnects the share and replays (`a_stale_tree_on_an_already_revived_connection_heals_in_a_replaying_read`). Mutations surface the error.
+  - **IPC$ is pinned the same way**: `list_shares` and `get_dfs_referral` pin on entry (their IPC$ tree id and pipe handle span many round trips), and the cached DFS IPC$ tree is stored with its pin, so a TREE_CONNECT that finishes as a revival clears the cache can't leave the dead id behind.
+- All previous `Tree` handles and `FileId` values are invalidated, and refused from then on; the caller must `connect_share` again. ❌ `execute` never reconnects on your behalf: re-issuing an arbitrary request against a new session is a data-safety decision only the layer that knows the operation's semantics can make. At the `SmbClient` level that means listings, reads, `stat`, and `fs_info` replay; `delete`, `rename`, `create`, and writes surface the error.
+
+## Durable handles
+
+Full rationale in `durable.rs`'s module docs. `Tree::open_file_durable` asks for an open the server keeps alive across a disconnect; `Tree::reclaim_durable_handle` claims it back so an interrupted write resumes instead of restarting.
+
+- **A reclaim is two independent proofs, and anything less fails.** (1) The `DH2C` context carries the `CreateGuid` the client chose at open, which the server matched (MS-SMB2 § 3.3.5.9.12). (2) A compounded `QUERY_INFO` says which file the handle points at, read at open and again after the reclaim. Writing into the wrong file is far worse than a failed transfer, so ❌ never relax either check or let a reclaim through on one.
+- ❌ **v1 durable handles (`DHnQ`/`DHnC`) are not implemented and must not be.** They identify the open by nothing but the server-allocated `FileId`, so a server that recycles ids could hand back a different file. On SMB 2.1 a dead session means the transfer restarts.
+- ❌ **The reconnect context must travel alone.** A server may reject a reclaim carrying any other create context (MS-SMB2 § 3.3.5.9.12) and Samba does, which is why the identity check is a compounded `QUERY_INFO` and not the tidier `QFid` create context. Use `FileInternalInformation` (class 6), not `FileIdInformation` (class 59): Samba 4.20 answers 59 with `STATUS_INVALID_INFO_CLASS`.
+- **A batch oplock is the price** (MS-SMB2 § 3.3.5.9.10) and it bills other clients ~35 s per break, so breaks are acknowledged from the receiver task on the tree the open belongs to (`Connection::register_oplock` / `forget_oplock`). Acknowledging gives the durability up, which is the right trade.
+- **Everything degrades quietly.** A pre-SMB3 server, durable handles off, a declined oplock, a server that won't answer the identity query: all produce a working handle with `DurableOpen::durable == None`, never an error.
+
+## Connection internals: receiver task + `oneshot` routing
+
+`Connection::execute` / `execute_compound` is the primary API. A background receiver task (spawned per `Connection` at `from_transport`) owns the transport's read half and routes each sub-frame to a per-request `oneshot::Sender` by `MessageId`.
+
+- `Connection` is `Clone` and holds just `Arc<Inner>`. `Inner` owns `waiters: Mutex<HashMap<MessageId, Waiter>>`, `credits: CreditPool`, `next_message_id: AtomicU64`, the queue into the writer task (which owns the transport's send half), the background tasks' `JoinHandle`s, and crypto state. All state is behind atomics or short-critical-section `std::sync::Mutex`.
+- `execute(command, body, tree_id)` allocates a `MessageId` (`AtomicU64::fetch_add(credit_charge)`), registers a `oneshot::Sender` in `waiters` atomically under the waiters lock (re-checks `disconnected` there to rule out a TOCTOU where the receiver task has already shut down and drained the map), packs the frame, signs/encrypts/compresses as needed, and writes through `TransportSend::send`. Then it awaits the local `oneshot::Receiver`. Returns `Result<Frame { header, body, raw }>`.
+- `execute_compound(&[CompoundOp])` does the same per sub-op, building one compound transport frame with `NextCommand` offsets, then awaits each per-sub-op receiver sequentially. Each receiver resolves independently (the receiver task splits the server's response by `NextCommand` and routes each sub-response by its `MessageId`). The outer `Result` is "did the compound hit the wire"; the inner `Vec<Result<Frame>>` has one entry per sub-op.
+- **Cancellation-by-drop is safe by construction.** If a caller's future is aborted (`tokio::spawn` + `JoinHandle::abort()` is the common path in consumers), the locally-owned `oneshot::Receiver` drops; the receiver task's `Sender::send` then fails silently when the late frame arrives; the frame is discarded. Credit grants are still banked in the receiver task so dropped-caller frames don't starve throughput.
+- **The receiver yields once after each frame it routes** (`rt::yield_now`), so a caller it just woke runs before the next frame. On tokio's multi-thread runtime a woken task goes into the waking worker's LIFO slot, which no other worker may steal, so it runs only when the receiver yields. The mock and a busy socket both always have the next frame ready, and tokio's coop budget doesn't fire on a mock at all, so without the yield a side `stat` waited for a whole download's worth of READs to be routed first: 333 ms once on a loaded client against a QNAP (`benchmarks/read-ahead/results/stat-stall-diagnosis.md`, class (d)). The yield costs ~40 ns a frame. Pinned by `a_woken_caller_runs_before_the_receiver_routes_the_rest_of_a_download` (red: 201 of 201 frames routed before the caller ran; green: 1). A frame that routed nothing (a STATUS_PENDING, an oplock break) skips it.
+- **Transport drop** fans `Err(Disconnected)` to every pending `oneshot::Sender` and sets `disconnected=true` under the waiters lock. Subsequent `execute` / `execute_compound` sees `disconnected=true` and returns `Err(Disconnected)` without inserting (no leaked waiters).
+
+### Socket lifetime
+
+**The socket closes when the connection is finished with: the last clone drops, or the connection is declared dead.** Never "whenever the server hangs up". Pinned over real loopback sockets by `socket_lifecycle_tests.rs`.
+
+- **Every background task holds a `Weak<Inner>`**, the receiver included, which upgrades once per frame and never holds `Inner` across `receive()`. Only `Inner::drop` aborts the tasks, so a task keeping `Inner` alive is a cycle: dropping every `Connection` then left the socket, `Inner`, and all four tasks alive until the server hung up, and Samba's default (`deadtime = 0`) never does. A consumer mounting and unmounting a share ~60 times held 78 open sockets and ~86 timer wakeups a second that way (Cmdr on smb2 0.24.0, 2026-09-23). ❌ Don't give a task a strong ref to keep.
+- **The writer and the receiver both hold the transport** (`TcpTransport` keeps both halves in one object), so the fd closes only once both exit. They share one `SocketLife` per generation: either one exiting (returning, panicking, or aborted, via `EndsSocketLife`) ends it and the other follows. Without it, a server hang-up ended the receiver while the writer waited for a frame that could never come, and the socket sat in `CLOSE_WAIT` for as long as the consumer held the dead connection.
+- **`fan_error_to_waiters` ends it too**, so `disconnected` and "socket closed" are the same fact: `mark_dead`, `declare_unresponsive`, a failed write, and a bad frame all close the socket at once. The `Connection` stays usable as a disconnected one, and a revival dials a new socket under a fresh `SocketLife`, so ending the old one can't reach the new tasks.
+- There is no LOGOFF on the way out: the server sees a TCP close. A session holding durable opens is kept by the server for their timeout, which is what makes them reclaimable.
+
+Gotcha/Why — there is no split `send_request` / `receive_response` API, so tests can't hand-drive the two halves. Tests that build mocks without going through `setup_connection` call `mock.enable_auto_rewrite_msg_id()`, which rewrites each queued response's zero-msg_id to match the next pending sent msg_id in FIFO order.
+
+Decisions behind this shape (cited by ID from code, like decision E3), and what was left out on purpose: `docs/connection-actor.md` at the repo root.
+
+## Key decisions
+
+- **Owned `FileWriter`: N concurrent streamed writes over one Connection without external locking**: `FileWriter` owns its `Connection` (cheap `Arc::clone`) and `Arc<Tree>` instead of borrowing `&'a mut Connection` from the `SmbClient`. Built via the free `open_file_writer(tree: Arc<Tree>, conn: Connection, path: &str)` or one of the two convenience wrappers (`Tree::create_file_writer`, `SmbClient::create_file_writer`). Multiple writers built from clones of the same `Connection` pipeline their WRITEs over one SMB session — the receiver task multiplexes responses by `MessageId`. The borrowed variant was the root cause of a production-reproducing deadlock in the cmdr SMB volume's `write_from_stream` (Phase C QNAP test, 200 × 7 MB concurrent overwrites): the consumer had to hold its session mutex for the entire upload because the writer borrowed `&'a mut Connection`. Owning the connection removes the lock from the hot path entirely.
+- **`execute` / `execute_compound` take `&self`**: `Connection: Clone` supports concurrent ops per connection — clone freely across tasks, the receiver task multiplexes responses by `MessageId`. `Tree::*` methods still take `&mut Connection` because session-setup mutators (`install_signing`, `install_encryption`, `set_session_id`, all crate-private) keep `&mut self`; Tree code calls both, so `&mut` at that layer is the least-churn choice.
+- **One task owns each half of the socket**: the receiver routes, the writer (§ The send path) is the only thing that writes. Both exist for correctness, not speed: a dropped caller must not corrupt the next response, and a cancelled send must not leave half a frame on the wire.
+- **Compound reads as default**: One round-trip for small files. Saves 2 RTTs vs sequential CREATE/READ/CLOSE.
+- **512 KB pipeline chunks**: Balances between too many small requests (overhead) and too few large ones (credit starvation). Gives ~20 chunks per 10 MB file.
+- **`FileInfo` and `DirectoryEntry` are `#[non_exhaustive]` plus `Default`**: a new field is a minor release, and a consumer's test fixture builds one with `default()` and field assignment (clippy's `field_reassign_with_default` stays quiet on a non-exhaustive type from another crate). ❌ Don't drop `Default` to "force" a constructor: it's the one way outside code can make one. Fields a listing can't fill stay out of `DirectoryEntry` rather than coming back zeroed.
+- **Password stored in `SmbClient`**: Enables reconnect without re-prompting. Not encrypted in memory. Drop when done. `ClientConfig` and the crate-private `EncryptionKeys` implement `Debug` by hand so `{:?}` prints `***` for the password and keys (`Session` holds no key, so it derives it) (`ClientConfig`'s impl destructures, so a new field fails to compile until it's printed or skipped on purpose); `ClientReviver` has no `Debug`.
+
+## Gotchas
+
+- **Preauth hash excludes the final success response**: Only STATUS_MORE_PROCESSING_REQUIRED responses are hashed. Including the success response produces wrong keys. (MS-SMB2 3.2.5.3.1)
+- **Oplock break notifications arrive with MessageId 0xFFFFFFFFFFFFFFFF**: The receiver task detects these and skips them without invoking a waiter lookup.
+- **Register-waiter must be atomic with `disconnected` check**: The waiters lock covers both reading `disconnected` and inserting the `oneshot::Sender`. If the check and insert were racy, a receiver-task failure mid-send could leave an orphan `Sender` in the map that never gets routed — caller would hang on `rx.await` forever. Same goes for `fan_error_to_waiters`: it sets `disconnected=true` UNDER the same waiters lock before draining, so new sends strictly either succeed-and-get-drained or fail at the insert check.
+- **Unrecoverable frame errors tear down the connection** (decision E6): decrypt failure, decompress failure, or a malformed sub-frame header that survives `split_compound` all cause the receiver task to call `fan_error_to_waiters(Err(Disconnected))` and exit. The alternative — log-and-continue — would leave the matching waiter hanging forever, because the msg_id isn't recoverable from an unparseable frame. The connection is also out of sync after one bad frame, so reconnect is the right move anyway. Counted via `MetricsSnapshot::{decrypt_failures, decompress_failures, malformed_frames}`.
+- **STATUS_PENDING loop**: CHANGE_NOTIFY and other long-poll operations get STATUS_PENDING first. The receiver task keeps the waiter registered on PENDING and does NOT forward the interim response. Credits from PENDING are still banked, and the waiter's `last_activity` is refreshed so the response deadline restarts. Counted via `MetricsSnapshot::status_pending_loops`.
+- **Signing and encryption are mutually exclusive on the wire**: When encrypting, zero the signature field (AEAD provides integrity). On receive, skip signature verification if decryption succeeded.
+- **Compound encryption wraps the entire chain**: One TRANSFORM_HEADER for all sub-requests concatenated, not per sub-request.
+- **Share-level encryption**: If a share has `SMB2_SHAREFLAG_ENCRYPT_DATA`, `Tree::connect` activates encryption even if the session didn't require it, on the low-level path too (§ Encryption).
+- **DFS paths must include server\share prefix**: When `SMB2_FLAGS_DFS_OPERATIONS` is set, the server expects the path to start with `server\share\` (MS-SMB2 3.2.4.3). `Tree::format_path()` handles this automatically for DFS shares. Without the prefix, Samba strips the first two path components, leading to wrong file opens.
+- **tree.server stores addr:port**: The `server` field on `Tree` stores the full `addr:port` string (not just hostname) so `Connections::for_tree` can distinguish servers that share the same hostname but use different ports.
+- **Every write that creates a file comes in a replacing and an exclusive form**: `write_file_compound` / `create_file_writer` use `FileOverwriteIf` (create or replace); `write_file_compound_exclusive` / `create_file_writer_exclusive` use `FileCreate`, which the server refuses atomically with `STATUS_OBJECT_NAME_COLLISION` (`ErrorKind::AlreadyExists`, an `Error::Protocol` naming the CREATE) if the name exists. A consumer that checked a name was free and then writes must use the exclusive form: the replacing one silently overwrites a file another writer put there in between. The disposition stays private (`*_with_disposition`), so the public surface is exactly these pairs.
+- **Servers MAY split compound responses**: MS-SMB2 section 3.3.4.1.3 says the server SHOULD compound responses but is not required to. Samba (and QNAP firmware built on it) is known to split compound chains into separate frames in some scenarios; Windows Server does too under certain conditions. The receiver task routes each sub-response by its `MessageId`, so `execute_compound` reassembles a split chain in submission order and no caller sees the difference (§ Receiving compound responses). Nothing counts or logs a split.

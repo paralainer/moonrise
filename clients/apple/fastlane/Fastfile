@@ -1,0 +1,85 @@
+# Ad-hoc provisioning for over-the-air installs (scripts/ota.sh). Uses the same App Store Connect API key
+# as the other projects on the build Mac (ASC_KEY_ID / ASC_ISSUER_ID / ASC_KEY_PATH).
+default_platform(:ios)
+
+# The app's bundle id: MOONRISE_BUNDLE_ID (the scripts pass it), else Config/Signing.local.xcconfig,
+# else Config/Signing.xcconfig.
+def moonrise_bundle_id
+  return ENV["MOONRISE_BUNDLE_ID"] if ENV["MOONRISE_BUNDLE_ID"].to_s != ""
+  ["../Config/Signing.local.xcconfig", "../Config/Signing.xcconfig"].each do |f|
+    next unless File.exist?(f)
+    id = File.read(f)[/^MOONRISE_BUNDLE_ID\s*=\s*(\S+)/, 1]
+    return id if id
+  end
+  UI.user_error!("No MOONRISE_BUNDLE_ID")
+end
+
+platform :ios do
+  lane :adhoc_profiles do
+    app_store_connect_api_key(
+      key_id: ENV["ASC_KEY_ID"],
+      issuer_id: ENV["ASC_ISSUER_ID"],
+      key_filepath: ENV["ASC_KEY_PATH"],
+    )
+    { moonrise_bundle_id => "Moonrise AdHoc", "#{moonrise_bundle_id}.widgets" => "Moonrise Widgets AdHoc" }.each do |id, name|
+      # Dev builds ran on a wildcard profile, so explicit App IDs may not exist yet.
+      unless Spaceship::ConnectAPI::BundleId.find(id)
+        Spaceship::ConnectAPI::BundleId.create(name: name.sub(" AdHoc", ""), platform: "IOS", identifier: id)
+        UI.message("Registered App ID #{id}")
+      end
+      get_provisioning_profile(adhoc: true, app_identifier: id, provisioning_name: name,
+                               force: true, team_id: ENV["APPLE_TEAM_ID"], output_path: "build-ota/profiles")
+    end
+  end
+end
+
+platform :ios do
+  lane :list_bundle_ids do
+    app_store_connect_api_key(key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], key_filepath: ENV["ASC_KEY_PATH"])
+    Spaceship::ConnectAPI::BundleId.all.select { |b| b.identifier.include?("moonrise") }.each do |b|
+      UI.message("BUNDLE #{b.identifier} platform=#{b.platform} name=#{b.name}")
+    end
+  end
+end
+
+# TestFlight (scripts/testflight.sh). The App Store Connect app record for the bundle id
+# can only be created on the website; everything after that goes through the API key.
+platform :ios do
+  lane :moonrise_app do
+    app_store_connect_api_key(key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], key_filepath: ENV["ASC_KEY_PATH"])
+    app = Spaceship::ConnectAPI::App.find(moonrise_bundle_id)
+    UI.message(app ? "MOONRISE_APP=#{app.id} #{app.name}" : "MOONRISE_APP=none")
+  end
+
+  # Internal group with every build, holding the team's users (internal testing: no review).
+  lane :team_testers do
+    app_store_connect_api_key(key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], key_filepath: ENV["ASC_KEY_PATH"])
+    app = Spaceship::ConnectAPI::App.find(moonrise_bundle_id) || UI.user_error!("No App Store Connect app yet")
+    group = app.get_beta_groups.find { |g| g.name == "Team" }
+    unless group
+      # (fastlane's create_beta_group sends a public-link setting Apple refuses for internal groups.)
+      body = { data: { type: "betaGroups", attributes: { name: "Team", isInternalGroup: true, hasAccessToAllBuilds: true },
+                       relationships: { app: { data: { type: "apps", id: app.id } } } } }
+      group = Spaceship::ConnectAPI.test_flight_request_client.post("v1/betaGroups", body).to_models.first
+      UI.message("Created internal group Team")
+    end
+    Spaceship::ConnectAPI::User.all.select { |u| (u.roles & ["ACCOUNT_HOLDER", "ADMIN"]).any? }.each do |u|
+      begin
+        body = { data: { type: "betaTesters", attributes: { email: u.username, firstName: u.first_name, lastName: u.last_name }.compact,
+                         relationships: { betaGroups: { data: [{ type: "betaGroups", id: group.id }] } } } }
+        Spaceship::ConnectAPI.test_flight_request_client.post("v1/betaTesters", body)
+        UI.message("Tester added: #{u.first_name}")
+      rescue StandardError => e
+        UI.message("Tester #{u.first_name}: #{e.message[0, 160]}")
+      end
+    end
+  end
+end
+
+# Register a device (e.g. the Apple TV) so development profiles include it.
+platform :ios do
+  lane :register_tv do |options|
+    app_store_connect_api_key(key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], key_filepath: ENV["ASC_KEY_PATH"])
+    register_device(name: options[:name], udid: options[:udid], platform: "ios") # Apple TVs register under iOS
+  end
+end

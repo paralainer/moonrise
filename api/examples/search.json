@@ -1,0 +1,100 @@
+{
+  "summary": "Titles and episodes",
+  "value": {
+    "episodes": [],
+    "titles": [
+      {
+        "added_at": "2026-11-08T20:49:34.000Z",
+        "community_rating": 6.5,
+        "critic_rating": null,
+        "end_date": null,
+        "episode_end": null,
+        "episode_no": null,
+        "genres": [
+          "Animation",
+          "Comedy",
+          "Family"
+        ],
+        "id": "01exampleid000000000000002",
+        "identify": {
+          "confidence": 1.0,
+          "note": null,
+          "source": "tmdb",
+          "state": "matched"
+        },
+        "images": {
+          "backdrop": [
+            "f1a66d157c1dc19289c84df8",
+            "d1d5ffc06678ff4135956fb8",
+            "4185ffb4643a77b8cf5260fc",
+            "1ad1ebfd8e6dc2f4545db21c"
+          ],
+          "logo": "7ec4710704763459ebe9fab2",
+          "poster": "2df7b17bc2263dc4563765c3",
+          "thumb": "f1a66d157c1dc19289c84df8"
+        },
+        "kind": "movie",
+        "library_id": "media",
+        "media": {
+          "audio": [
+            {
+              "channels": 1,
+              "codec": "aac",
+              "default": false,
+              "language": "eng",
+              "profile": "LC",
+              "title": "English - AAC - Mono"
+            }
+          ],
+          "subtitles": [
+            {
+              "codec": "subrip",
+              "forced": false,
+              "language": "eng",
+              "text": true
+            }
+          ],
+          "video": {
+            "codec": "h264",
+            "height": 360,
+            "range": "SDR",
+            "title": "360p H264 SDR",
+            "width": 640
+          }
+        },
+        "official_rating": "G",
+        "original_title": "Big Buck Bunny",
+        "overview": "A giant, gentle rabbit takes revenge on three rodents who bully the forest's creatures.",
+        "premiere_date": "2008-04-10",
+        "provider_ids": {
+          "Imdb": "tt1254207",
+          "Tmdb": "10378"
+        },
+        "runtime": 150.021,
+        "season_id": null,
+        "season_no": null,
+        "season_title": null,
+        "series_id": null,
+        "series_title": null,
+        "sort_title": "Big Buck Bunny",
+        "status": "Released",
+        "studios": [
+          "Blender Foundation"
+        ],
+        "tagline": null,
+        "title": "Big Buck Bunny",
+        "tmdb_runtime": 480.0,
+        "updated_at": "2026-11-08T23:49:45.000Z",
+        "user": {
+          "last_played_at": null,
+          "play_count": 0,
+          "played": false,
+          "played_percentage": null,
+          "position": 0.0
+        },
+        "versions": 1,
+        "year": 2008
+      }
+    ]
+  }
+}

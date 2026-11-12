@@ -1,0 +1,9 @@
+{
+  "summary": "A new invitation: its code is shown only now",
+  "value": {
+    "admin": false,
+    "code": "ABCD-EFGH",
+    "expires_at": "2026-11-16T00:18:27.000Z",
+    "id": "01exampleid000000000000010"
+  }
+}

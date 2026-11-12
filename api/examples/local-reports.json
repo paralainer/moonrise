@@ -1,0 +1,12 @@
+{
+  "summary": "Reports of a download played offline",
+  "value": {
+    "results": [
+      {
+        "item": "01exampleid000000000000002",
+        "outcome": "played",
+        "recorded": true
+      }
+    ]
+  }
+}

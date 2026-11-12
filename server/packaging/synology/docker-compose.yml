@@ -1,0 +1,19 @@
+# Moonrise server for Synology Container Manager (Project → Create → paste this).
+services:
+  moonrise-server:
+    image: ghcr.io/paralainer/moonrise-server:latest
+    container_name: moonrise-server
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      MOONRISE_LISTEN: 0.0.0.0:8097
+      MOONRISE_CACHE_DIR: /data/cache
+      MOONRISE_RESTART: exit
+    # Intel Quick Sync (models with an Intel graphics core); delete if /dev/dri is missing.
+    devices:
+      - /dev/dri:/dev/dri
+    volumes:
+      # The project folder: the server's state.
+      - ./data:/data
+      # Your videos on this NAS, read-only (change "video" to your shared folder's name).
+      - /volume1/video:/media:ro

@@ -1,0 +1,15 @@
+{
+  "summary": "One pending invitation",
+  "value": {
+    "items": [
+      {
+        "admin": false,
+        "created_at": "2026-11-09T00:18:27.000Z",
+        "created_by": "demo",
+        "expires_at": "2026-11-16T00:18:27.000Z",
+        "id": "01exampleid000000000000010"
+      }
+    ],
+    "total": 1
+  }
+}

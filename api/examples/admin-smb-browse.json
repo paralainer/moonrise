@@ -1,0 +1,22 @@
+{
+  "summary": "A share's folder",
+  "value": {
+    "dirs": [
+      {
+        "name": "Movies",
+        "path": "Video/Movies"
+      },
+      {
+        "name": "Shows",
+        "path": "Video/Shows"
+      }
+    ],
+    "host": "192.168.1.30",
+    "parent": "",
+    "path": "Video",
+    "share": "Media",
+    "truncated": false,
+    "url": "smb://192.168.1.30/Media/Video",
+    "video_files": 0
+  }
+}

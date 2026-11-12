@@ -1,0 +1,12 @@
+{
+  "summary": "Signed in, with the models the plan offers",
+  "value": {
+    "email": "demo@example.com",
+    "models": [
+      {
+        "id": "gpt-5.4-mini",
+        "name": "gpt-5.4-mini"
+      }
+    ]
+  }
+}

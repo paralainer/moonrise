@@ -1,0 +1,36 @@
+{
+ "generated": "2026-01-01T00:00:00Z",
+ "library_items": 1,
+ "samples": [
+  {
+   "class": "mkv-h264",
+   "candidates": 1,
+   "id": "01xxxxxxxxxxxxxxxxxxxxxxxx",
+   "name": "Some Show S01E01",
+   "type": "Episode",
+   "path": "/media/tv/Some Show (2020)/Season 1/Some Show S01E01.mkv",
+   "container": "mkv",
+   "size": 700000000,
+   "runtime": 2650.0,
+   "versions": 1,
+   "video": {
+    "codec": "h264",
+    "profile": "Main",
+    "range": "SDR",
+    "width": 1280,
+    "height": 720
+   },
+   "audio": [
+    "aac"
+   ],
+   "subtitles": [],
+   "expect": {
+    "supported": true,
+    "reasons": []
+   },
+   "expect_transcode": {
+    "q1500000": "ok"
+   }
+  }
+ ]
+}

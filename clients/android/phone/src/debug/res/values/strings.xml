@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The debug build is the Dev app (app.moonrise.phone.dev), installed beside the release one. -->
+<resources>
+    <string name="app_name">Moonrise Dev</string>
+</resources>

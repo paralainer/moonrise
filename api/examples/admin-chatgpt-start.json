@@ -1,0 +1,6 @@
+{
+  "summary": "The page to open for Sign in with ChatGPT",
+  "value": {
+    "url": "https://auth.openai.com/oauth/authorize?client_id=app_EXAMPLE&state=EXAMPLE-state"
+  }
+}

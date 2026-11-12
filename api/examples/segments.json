@@ -1,0 +1,21 @@
+{
+  "summary": "Intro and credits from chapter names",
+  "value": {
+    "items": [
+      {
+        "end": 20.0,
+        "kind": "intro",
+        "source": "chapters",
+        "start": 0.0
+      },
+      {
+        "end": 150.021,
+        "kind": "credits",
+        "source": "chapters",
+        "start": 140.0
+      }
+    ],
+    "pending": false,
+    "total": 2
+  }
+}

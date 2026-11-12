@@ -1,0 +1,151 @@
+{
+  "summary": "A library's newest titles",
+  "value": {
+    "items": [
+      {
+        "added_at": "2026-11-08T20:51:06.000Z",
+        "child_count": 1,
+        "community_rating": null,
+        "critic_rating": null,
+        "end_date": null,
+        "episode_count": 2,
+        "episode_end": null,
+        "episode_no": null,
+        "genres": [],
+        "id": "01exampleid000000000000001",
+        "identify": {
+          "confidence": 0.0,
+          "note": "no confident TMDB match",
+          "source": "parse",
+          "state": "review"
+        },
+        "images": {
+          "backdrop": [],
+          "logo": null,
+          "poster": null,
+          "thumb": null
+        },
+        "kind": "series",
+        "latest_added_at": "2026-11-08T20:51:06.000Z",
+        "library_id": "media",
+        "official_rating": null,
+        "original_title": null,
+        "overview": null,
+        "premiere_date": null,
+        "provider_ids": {},
+        "runtime": null,
+        "season_id": null,
+        "season_no": null,
+        "season_title": null,
+        "series_id": null,
+        "series_title": null,
+        "sort_title": "Demo Series",
+        "status": null,
+        "studios": [],
+        "tagline": null,
+        "title": "Demo Series",
+        "updated_at": "2026-11-08T23:51:06.000Z",
+        "user": {
+          "last_played_at": null,
+          "played": false,
+          "position": 0.0,
+          "unplayed_item_count": 2
+        },
+        "year": null
+      },
+      {
+        "added_at": "2026-11-08T20:49:34.000Z",
+        "community_rating": 6.5,
+        "critic_rating": null,
+        "end_date": null,
+        "episode_end": null,
+        "episode_no": null,
+        "genres": [
+          "Animation",
+          "Comedy",
+          "Family"
+        ],
+        "id": "01exampleid000000000000002",
+        "identify": {
+          "confidence": 1.0,
+          "note": null,
+          "source": "tmdb",
+          "state": "matched"
+        },
+        "images": {
+          "backdrop": [
+            "f1a66d157c1dc19289c84df8",
+            "d1d5ffc06678ff4135956fb8",
+            "4185ffb4643a77b8cf5260fc",
+            "1ad1ebfd8e6dc2f4545db21c"
+          ],
+          "logo": "7ec4710704763459ebe9fab2",
+          "poster": "2df7b17bc2263dc4563765c3",
+          "thumb": "f1a66d157c1dc19289c84df8"
+        },
+        "kind": "movie",
+        "library_id": "media",
+        "media": {
+          "audio": [
+            {
+              "channels": 1,
+              "codec": "aac",
+              "default": false,
+              "language": "eng",
+              "profile": "LC",
+              "title": "English - AAC - Mono"
+            }
+          ],
+          "subtitles": [
+            {
+              "codec": "subrip",
+              "forced": false,
+              "language": "eng",
+              "text": true
+            }
+          ],
+          "video": {
+            "codec": "h264",
+            "height": 360,
+            "range": "SDR",
+            "title": "360p H264 SDR",
+            "width": 640
+          }
+        },
+        "official_rating": "G",
+        "original_title": "Big Buck Bunny",
+        "overview": "A giant, gentle rabbit takes revenge on three rodents who bully the forest's creatures.",
+        "premiere_date": "2008-04-10",
+        "provider_ids": {
+          "Imdb": "tt1254207",
+          "Tmdb": "10378"
+        },
+        "runtime": 150.021,
+        "season_id": null,
+        "season_no": null,
+        "season_title": null,
+        "series_id": null,
+        "series_title": null,
+        "sort_title": "Big Buck Bunny",
+        "status": "Released",
+        "studios": [
+          "Blender Foundation"
+        ],
+        "tagline": null,
+        "title": "Big Buck Bunny",
+        "tmdb_runtime": 480.0,
+        "updated_at": "2026-11-08T23:49:45.000Z",
+        "user": {
+          "last_played_at": null,
+          "play_count": 0,
+          "played": false,
+          "played_percentage": null,
+          "position": 0.0
+        },
+        "versions": 1,
+        "year": 2008
+      }
+    ],
+    "total": 2
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "summary": "A new server: nothing set up",
+  "value": {
+    "services": [
+      {
+        "id": "tmdb",
+        "name": "TMDB",
+        "setting": "tmdb.api_key",
+        "source": "default",
+        "state": "not_set",
+        "summary": "Not set up: titles come from file names and your folders.",
+        "with": "Titles are matched on TMDB: posters, backdrops, plots, cast, genres, ratings and episode names.",
+        "without": "Titles and years come from file and folder names (and NFO files or the files' own tags); artwork from images in your folders (poster.jpg, fanart.jpg…), cover art inside the files, or a frame of the video."
+      },
+      {
+        "account": false,
+        "id": "opensubtitles",
+        "name": "OpenSubtitles",
+        "setting": "opensubtitles.api_key",
+        "source": "default",
+        "state": "not_set",
+        "summary": "Not set up: subtitle search is hidden.",
+        "with": "Find Subtitles searches OpenSubtitles.com; a subtitle fetched once plays on every device. Without an account: 5 downloads a day; with a free account 20; VIP accounts more.",
+        "without": "Find Subtitles is hidden. Subtitles inside your files and next to them still play."
+      },
+      {
+        "id": "llm",
+        "model": null,
+        "name": "AI matching",
+        "provider": "anthropic",
+        "provider_name": "Anthropic",
+        "review": 0,
+        "setting": "llm.api_key",
+        "source": "default",
+        "state": "not_set",
+        "summary": "Not set up: unclear file names go to Fix Match.",
+        "with": "A language model reads unclear or transliterated file names and picks among TMDB's candidates; every answer is checked (year, runtime, title).",
+        "without": "Titles are matched by name, year and runtime; the ones that stay unclear wait in Fix Match with their likely candidates for you to pick."
+      },
+      {
+        "attribution": "Information courtesy of IMDb (https://www.imdb.com). Used with permission. Rotten Tomatoes and Metacritic scores through OMDb (omdbapi.com), CC BY-NC 4.0.",
+        "critic_titles": 0,
+        "id": "ratings",
+        "imdb_titles": 0,
+        "name": "Ratings",
+        "setting": "omdb.api_key",
+        "source": "default",
+        "state": "not_set",
+        "summary": "IMDb ratings from IMDb's dataset. Add a free OMDb key for Rotten Tomatoes and Metacritic.",
+        "updated_at": null,
+        "with": "Title pages show IMDb, Rotten Tomatoes and Metacritic beside TMDB. A free OMDb key (omdbapi.com) allows 1,000 look-ups a day; the server uses at most 500, a few seconds apart, and looks each title up again every two weeks.",
+        "without": "Title pages show IMDb's rating (from IMDb's dataset, read about once a week) and TMDB's."
+      },
+      {
+        "address": null,
+        "id": "remote_access",
+        "name": "Remote access",
+        "source": "tailscale",
+        "state": "not_set",
+        "summary": "Home network only.",
+        "with": "Put the server's computer and your devices on Tailscale (free): the apps reach the server from anywhere, with nothing opened to the internet.",
+        "without": "The apps reach the server on your home network only; downloads still play anywhere."
+      }
+    ]
+  }
+}

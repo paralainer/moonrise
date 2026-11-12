@@ -1,0 +1,72 @@
+{
+  "summary": "A movie with two likely matches, and an episode of a show not matched",
+  "value": {
+    "items": [
+      {
+        "id": "01exampleid000000000000002",
+        "kind": "movie",
+        "title": "Big Buck Bunny",
+        "key": "path:movie:big buck bunny|2008",
+        "state": "review",
+        "source": "tmdb",
+        "confidence": 0.62,
+        "note": "two close matches",
+        "files": [
+          "/media/Movies/Big Buck Bunny (2008).mp4"
+        ],
+        "candidates": [
+          {
+            "tmdb_id": 10378,
+            "title": "Big Buck Bunny",
+            "original_title": "Big Buck Bunny",
+            "year": 2008,
+            "overview": "Follow a day of the life of Big Buck Bunny when he meets three bullying rodents.",
+            "poster": "https://image.tmdb.org/t/p/w342/example-poster.jpg",
+            "score": 0.62
+          },
+          {
+            "tmdb_id": 10379,
+            "title": "Big Buck Bunny 2",
+            "original_title": "Big Buck Bunny 2",
+            "year": 2009,
+            "overview": null,
+            "poster": null,
+            "score": 0.41
+          }
+        ],
+        "year": 2008,
+        "library": "movies",
+        "series_id": null,
+        "series_title": null,
+        "series_tmdb_id": null,
+        "season": null,
+        "episode": null,
+        "episode_end": null
+      },
+      {
+        "id": "01exampleid000000000000005",
+        "kind": "episode",
+        "title": "Episode 1",
+        "key": "path:episode:demo series|1|1",
+        "state": "review",
+        "source": "tmdb",
+        "confidence": null,
+        "note": "the show isn't matched",
+        "files": [
+          "/media/Shows/Demo Series/Season 01/Demo Series S01E01.mp4"
+        ],
+        "candidates": [],
+        "year": null,
+        "library": "shows",
+        "series_id": "01exampleid000000000000001",
+        "series_title": "Demo Series",
+        "series_tmdb_id": null,
+        "season": 1,
+        "episode": 1,
+        "episode_end": null
+      }
+    ],
+    "total": 2,
+    "verdicts": []
+  }
+}

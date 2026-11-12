@@ -1,0 +1,8 @@
+{
+  "summary": "The file server doesn't answer",
+  "value": {
+    "detail": "the server can't be reached (connect to 192.168.1.30: could not connect to 192.168.1.30:445: 1 address(es) tried)",
+    "error": "the server can't be reached",
+    "problem": "unreachable"
+  }
+}

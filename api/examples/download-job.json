@@ -1,0 +1,28 @@
+{
+  "summary": "A remux, queued",
+  "value": {
+    "id": "QwuhCfL2wxuAcNL1",
+    "item_id": "01exampleid000000000000002",
+    "params": {
+      "quality": null,
+      "audio": null,
+      "hdr": null,
+      "container": "mp4"
+    },
+    "label": "Original",
+    "method": "remux",
+    "audio": [
+      2
+    ],
+    "state": "queued",
+    "progress": 0.0,
+    "size": 0,
+    "expected": 6940534,
+    "error": null,
+    "created_at": 1794181941,
+    "finished_at": null,
+    "downloaded_at": null,
+    "expires_at": null,
+    "file": null
+  }
+}

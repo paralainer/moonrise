@@ -1,0 +1,12 @@
+{
+  "summary": "Approved: the token, once",
+  "value": {
+    "status": "approved",
+    "token": "moonrise_EXAMPLE-token-not-real-0123456789abcdefghijk",
+    "user": {
+      "id": "01exampleid000000000000004",
+      "is_admin": true,
+      "name": "demo"
+    }
+  }
+}

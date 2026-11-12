@@ -1,0 +1,11 @@
+{
+  "summary": "The first account, an admin, signed in on this device",
+  "value": {
+    "token": "moonrise_EXAMPLE-token-not-real-0123456789abcdefghijk",
+    "user": {
+      "id": "01exampleid000000000000004",
+      "is_admin": true,
+      "name": "demo"
+    }
+  }
+}

@@ -1,0 +1,89 @@
+{
+  "summary": "A server that transcodes on the CPU",
+  "value": {
+    "cache_max_bytes": 10737418240,
+    "can_restart": true,
+    "download_max_bytes": 12884901888,
+    "downloads_bytes": 0,
+    "hardware": {
+      "cpu": {
+        "model": "Example 8-core CPU",
+        "threads": 8
+      },
+      "encoders": {
+        "h264_nvenc": true,
+        "h264_qsv": true,
+        "h264_v4l2m2m": true,
+        "h264_vaapi": true,
+        "h264_videotoolbox": false,
+        "hevc_nvenc": true,
+        "hevc_qsv": true,
+        "hevc_vaapi": true,
+        "hevc_videotoolbox": false,
+        "libx264": true
+      },
+      "ffmpeg": "ffmpeg version 8.1.3-Jellyfin",
+      "nvidia": [],
+      "other_gpus": []
+    },
+    "name": "Demo Server",
+    "restart_required": [],
+    "server_id": "f78ed818-9241-438e-81f2-6e8ec1dfe92b",
+    "sizes": {
+      "artwork": 0,
+      "cache": 1069887,
+      "data": 2800485,
+      "database": 1730216,
+      "subtitles": 342
+    },
+    "started_at": "2026-11-09T00:18:28.000Z",
+    "transcode": {
+      "available": true,
+      "backend": "cpu",
+      "choices": [
+        {
+          "key": "auto",
+          "label": "Automatic"
+        },
+        {
+          "key": "nvidia",
+          "label": "NVIDIA"
+        },
+        {
+          "key": "qsv",
+          "label": "Intel Quick Sync"
+        },
+        {
+          "key": "vaapi",
+          "label": "VA-API (Intel, AMD)"
+        },
+        {
+          "key": "v4l2",
+          "label": "V4L2 (Raspberry Pi)"
+        },
+        {
+          "key": "cpu",
+          "label": "CPU"
+        }
+      ],
+      "decode": "CPU",
+      "device": null,
+      "encode": "libx264",
+      "hdr_kept": false,
+      "label": "CPU (libx264)",
+      "max_height": 1080,
+      "min_width": 0,
+      "notes": [
+        "HDR is tone-mapped to SDR when transcoding (no HEVC Main 10 encoder)"
+      ],
+      "requested": "auto",
+      "scale": "scale (CPU)",
+      "threads": 4,
+      "tonemap": "CPU (zscale)",
+      "vendor": null
+    },
+    "transcoding": "cpu",
+    "uptime_secs": 465,
+    "version": "0.28.0"
+  }
+}

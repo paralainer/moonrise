@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Dev app's icon: the logo on amber rather than black, to tell it from the release app. -->
+<resources>
+    <color name="ic_launcher_background">#FFB45309</color>
+</resources>

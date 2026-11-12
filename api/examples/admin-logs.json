@@ -1,0 +1,13 @@
+{
+  "summary": "The log's last lines",
+  "value": {
+    "lines": [
+      "2026-11-09T00:26:06.936691Z  INFO moonrise_server::library::browse: video summary updated rows=3",
+      "2026-11-09T00:26:06.936729Z  INFO moonrise_server::library: library pass full=false identified=1 metadata=0 llm_calls=0 ms=19 error=None",
+      "2026-11-09T00:26:06.936806Z  INFO moonrise_server::library: folders listed folders=2 ms=0",
+      "2026-11-09T00:26:13.787880Z  INFO req{auth=\"moonrise\"}: moonrise_server::api: loaded item=\"01exampleid000000000000002\" name=Some(\"Big Buck Bunny\") source=\"local\" probe_cache=\"hit\" supported=true method=\"copy\" reasons=[] segments=15 item_ms=0 load_ms=0 ms=0",
+      "2026-11-09T00:26:13.788029Z  INFO req{auth=\"moonrise\"}: moonrise_server::api: playback item=01exampleid000000000000002 auth=\"moonrise\" supported=true variant=Some(\"copy\") quality=None hdr=true lossless=false burn=None reasons=[] notes=[]"
+    ],
+    "total": 5
+  }
+}

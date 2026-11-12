@@ -1,0 +1,39 @@
+# Moonrise server built from this checkout, for contributors. Run it with `make server-run`
+# (scripts/server-dev.sh), which builds the image, starts it, waits until it answers, and prints the
+# address to open and the setup code. `make server-stop` stops it; the data stays.
+#
+# This is not the file for running Moonrise at home: that is docker-compose.yml, beside this one.
+#
+# Differences from docker-compose.yml:
+#   - the image is built from server/ (the Dockerfile here), not pulled;
+#   - a published port instead of host networking, so it works the same with Docker Desktop on a
+#     Mac. Bonjour is off (it would announce the container's address); the apps find the server by
+#     sweeping the local network, or you type the address server-dev.sh prints;
+#   - the data is in .dev-data/ at the top of the checkout (git-ignored), owned by you, and
+#     .dev-media/ is mounted read-only at /media for test videos.
+#
+# Settings, as environment variables (server-dev.sh fills in the user):
+#   COMPOSE_PROJECT_NAME  the compose project (default moonrise-dev), so two can run side by side
+#   MOONRISE_DEV_PORT     the port on this machine (default 8097)
+#   MOONRISE_DEV_IMAGE    the image's name (default moonrise-server:dev)
+#   MOONRISE_DEV_DATA     the data folder (default .dev-data in the checkout)
+#   MOONRISE_DEV_MEDIA    a video folder to mount at /media (default .dev-media in the checkout)
+#   MOONRISE_DEV_USER     uid:gid the server runs as (server-dev.sh: yours)
+name: moonrise-dev
+services:
+  server:
+    build: .
+    image: ${MOONRISE_DEV_IMAGE:-moonrise-server:dev}
+    user: ${MOONRISE_DEV_USER:-0:0}
+    restart: unless-stopped
+    ports:
+      - "${MOONRISE_DEV_PORT:-8097}:8097"
+    environment:
+      MOONRISE_LISTEN: 0.0.0.0:8097
+      MOONRISE_DATA_DIR: /data
+      MOONRISE_CACHE_DIR: /data/cache
+      MOONRISE_RESTART: exit
+      MOONRISE_DISABLE: mdns
+    volumes:
+      - ${MOONRISE_DEV_DATA:-../.dev-data}:/data
+      - ${MOONRISE_DEV_MEDIA:-../.dev-media}:/media:ro

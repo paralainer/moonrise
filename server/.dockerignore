@@ -1,0 +1,4 @@
+target
+deploy
+# The server's data when docker-compose.yml runs here: never part of the image.
+moonrise-data

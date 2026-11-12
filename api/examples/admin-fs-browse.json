@@ -1,0 +1,19 @@
+{
+  "summary": "A folder of the server's, with two sub-folders",
+  "value": {
+    "dirs": [
+      {
+        "name": "Movies",
+        "path": "/media/Movies"
+      },
+      {
+        "name": "Shows",
+        "path": "/media/Shows"
+      }
+    ],
+    "parent": null,
+    "path": "/media",
+    "truncated": false,
+    "video_files": 0
+  }
+}

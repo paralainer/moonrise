@@ -1,0 +1,15 @@
+{
+  "summary": "Thumbnails ready",
+  "value": {
+    "state": "ready",
+    "interval": 10.0,
+    "width": 320,
+    "height": 180,
+    "columns": 10,
+    "rows": 10,
+    "count": 16,
+    "sheets": [
+      "/v1/trickplay/b6dc0efe4a3b4792/0.jpg"
+    ]
+  }
+}

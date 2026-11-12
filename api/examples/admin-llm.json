@@ -1,0 +1,123 @@
+{
+  "summary": "The AI matching provider's presets and settings (not set up)",
+  "value": {
+    "chatgpt": {
+      "accounts": [],
+      "signed_in": false,
+      "unfinished": []
+    },
+    "current": {
+      "api_key": {
+        "set": false
+      },
+      "base_url": "https://api.anthropic.com",
+      "enabled": false,
+      "keys_aside": [],
+      "model": "claude-haiku-5-5",
+      "output": "schema",
+      "output_in_use": null,
+      "provider": "anthropic"
+    },
+    "presets": [
+      {
+        "base_url": "https://api.anthropic.com",
+        "help": "An API key from console.anthropic.com.",
+        "id": "anthropic",
+        "key": "required",
+        "local": false,
+        "model": "claude-haiku-5-5",
+        "name": "Anthropic",
+        "output": "schema",
+        "style": "anthropic"
+      },
+      {
+        "base_url": "https://api.openai.com/v1",
+        "help": "An API key from platform.openai.com (billed by the API, not a ChatGPT plan).",
+        "id": "openai",
+        "key": "required",
+        "local": false,
+        "model": "gpt-5.4-mini",
+        "name": "OpenAI",
+        "output": "schema",
+        "style": "openai"
+      },
+      {
+        "base_url": "https://api.openai.com/v1",
+        "help": "Your ChatGPT plan (Plus, Pro and others that allow it) instead of an API key: sign in below.",
+        "id": "chatgpt",
+        "key": "sign_in",
+        "local": false,
+        "model": "",
+        "name": "ChatGPT plan",
+        "output": "auto",
+        "style": "responses"
+      },
+      {
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "help": "An API key from aistudio.google.com.",
+        "id": "gemini",
+        "key": "required",
+        "local": false,
+        "model": "gemini-2.5-flash",
+        "name": "Google Gemini",
+        "output": "auto",
+        "style": "openai"
+      },
+      {
+        "base_url": "https://openrouter.ai/api/v1",
+        "help": "An API key from openrouter.ai; the model is any OpenRouter model id.",
+        "id": "openrouter",
+        "key": "required",
+        "local": false,
+        "model": "google/gemini-2.5-flash",
+        "name": "OpenRouter",
+        "output": "auto",
+        "style": "openai"
+      },
+      {
+        "base_url": "http://localhost:11434/v1",
+        "help": "Ollama on this network: its address with /v1, and a model it has pulled.",
+        "id": "ollama",
+        "key": "optional",
+        "local": true,
+        "model": "",
+        "name": "Ollama",
+        "output": "auto",
+        "style": "openai"
+      },
+      {
+        "base_url": "http://localhost:1234/v1",
+        "help": "LM Studio's server on this network: its address with /v1, and a loaded model.",
+        "id": "lmstudio",
+        "key": "optional",
+        "local": true,
+        "model": "",
+        "name": "LM Studio",
+        "output": "auto",
+        "style": "openai"
+      },
+      {
+        "base_url": "http://localhost:8080/v1",
+        "help": "llama-server on this network: its address with /v1 (start it with --jinja for tool calls).",
+        "id": "llamacpp",
+        "key": "optional",
+        "local": true,
+        "model": "",
+        "name": "llama.cpp",
+        "output": "auto",
+        "style": "openai"
+      },
+      {
+        "base_url": "",
+        "help": "Any server with the OpenAI Chat Completions API (vLLM, LocalAI, a gateway…): its base URL (usually ending in /v1), a model, and a key if it needs one.",
+        "id": "custom",
+        "key": "optional",
+        "local": false,
+        "model": "",
+        "name": "Other (OpenAI-compatible)",
+        "output": "auto",
+        "style": "openai"
+      }
+    ]
+  }
+}

@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <RootNamespace>Moonrise.App</RootNamespace>
+    <AssemblyName>Moonrise</AssemblyName>
+    <Version>0.1.0</Version>
+    <Platforms>x64</Platforms>
+    <Platform>x64</Platform>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon Condition="'$(MoonriseDev)' != 'true'">Assets\Moonrise.ico</ApplicationIcon>
+    <ApplicationIcon Condition="'$(MoonriseDev)' == 'true'">Assets\MoonriseDev.ico</ApplicationIcon>
+    <!-- build.ps1 -Dev: the Dev app (its own name and data), so testing never touches the app someone watches with. -->
+    <DefineConstants Condition="'$(MoonriseDev)' == 'true'">$(DefineConstants);MOONRISE_DEV</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.6.5" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Moonrise.Core\Moonrise.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="Assets\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <!-- dotnet publish leaves out the app's own XAML files and resources index, which WinUI needs. -->
+  <Target Name="CopyXamlOutputToPublish" AfterTargets="Publish">
+    <ItemGroup>
+      <XamlOutput Include="$(OutDir)*.xbf" />
+      <XamlOutput Include="$(OutDir)$(AssemblyName).pri" />
+    </ItemGroup>
+    <Copy SourceFiles="@(XamlOutput)" DestinationFolder="$(PublishDir)" />
+  </Target>
+</Project>

@@ -1,0 +1,12 @@
+{
+  "summary": "A share folder that would work as a library folder",
+  "value": {
+    "dirs": 1,
+    "entries": 3,
+    "guest": false,
+    "ms": 41,
+    "ok": true,
+    "url": "smb://192.168.1.30/Media/Video/Shows",
+    "video_files": 2
+  }
+}

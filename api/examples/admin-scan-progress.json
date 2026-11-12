@@ -1,0 +1,62 @@
+{
+  "summary": "The first scan, identifying",
+  "value": {
+    "full": true,
+    "identify": {
+      "done": 1,
+      "total": 3
+    },
+    "last_pass": {
+      "aborted": null,
+      "at": 1794183423,
+      "error": null,
+      "files_seen": 3,
+      "ms": 1,
+      "offline": []
+    },
+    "libraries": [
+      {
+        "episodes": 0,
+        "files": 1,
+        "id": "movies",
+        "identified": 1,
+        "kind": "mixed",
+        "movies": 1,
+        "name": "Movies",
+        "review": 0,
+        "review_episodes": 0,
+        "series": 0,
+        "settling": 0
+      },
+      {
+        "episodes": 0,
+        "files": 2,
+        "id": "shows",
+        "identified": 0,
+        "kind": "mixed",
+        "movies": 0,
+        "name": "Shows",
+        "review": 0,
+        "review_episodes": 0,
+        "series": 0,
+        "settling": 0
+      }
+    ],
+    "passes": 1,
+    "phase": "identifying",
+    "roots": {
+      "/media/Movies": {
+        "checked_at": 1794183423,
+        "online": true,
+        "since": 1794183423
+      },
+      "/media/Shows": {
+        "checked_at": 1794183423,
+        "online": true,
+        "since": 1794183423
+      }
+    },
+    "started_at": 1794183423,
+    "walked": 3
+  }
+}

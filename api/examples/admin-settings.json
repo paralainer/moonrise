@@ -1,0 +1,315 @@
+{
+  "summary": "A new server's settings (the name changed)",
+  "value": {
+    "fields": {
+      "features.burn": {
+        "apply": "live",
+        "source": "default"
+      },
+      "features.convert": {
+        "apply": "live",
+        "source": "default"
+      },
+      "features.credits_detect": {
+        "apply": "live",
+        "source": "default"
+      },
+      "features.db": {
+        "apply": "env-only",
+        "source": "default"
+      },
+      "features.downloads": {
+        "apply": "live",
+        "source": "default"
+      },
+      "features.index_backfill": {
+        "apply": "live",
+        "source": "default"
+      },
+      "features.library": {
+        "apply": "restart",
+        "source": "default"
+      },
+      "features.llm": {
+        "apply": "live",
+        "source": "default"
+      },
+      "features.mdns": {
+        "apply": "live",
+        "env": "MOONRISE_DISABLE",
+        "source": "env"
+      },
+      "features.moonrise_auth": {
+        "apply": "env-only",
+        "source": "default"
+      },
+      "features.mp4_index": {
+        "apply": "live",
+        "source": "default"
+      },
+      "features.opensubtitles": {
+        "apply": "live",
+        "source": "default"
+      },
+      "features.probe_cache": {
+        "apply": "live",
+        "source": "default"
+      },
+      "features.ratings": {
+        "apply": "live",
+        "source": "default"
+      },
+      "features.scan_index": {
+        "apply": "live",
+        "source": "default"
+      },
+      "features.subs_backfill": {
+        "apply": "restart",
+        "source": "default"
+      },
+      "features.subs_extract": {
+        "apply": "restart",
+        "source": "default"
+      },
+      "features.subs_sync": {
+        "apply": "live",
+        "source": "default"
+      },
+      "features.subs_windows": {
+        "apply": "live",
+        "source": "default"
+      },
+      "features.transcode": {
+        "apply": "restart",
+        "source": "default"
+      },
+      "features.trickplay": {
+        "apply": "live",
+        "source": "default"
+      },
+      "llm.api_key": {
+        "apply": "live",
+        "source": "default"
+      },
+      "llm.base_url": {
+        "apply": "live",
+        "source": "default"
+      },
+      "llm.enabled": {
+        "apply": "live",
+        "source": "default"
+      },
+      "llm.max_calls_per_scan": {
+        "apply": "live",
+        "source": "default"
+      },
+      "llm.model": {
+        "apply": "live",
+        "source": "default"
+      },
+      "llm.output": {
+        "apply": "live",
+        "source": "default"
+      },
+      "llm.provider": {
+        "apply": "live",
+        "source": "default"
+      },
+      "metadata.country": {
+        "apply": "live",
+        "source": "default"
+      },
+      "metadata.language": {
+        "apply": "live",
+        "source": "default"
+      },
+      "omdb.api_key": {
+        "apply": "live",
+        "source": "default"
+      },
+      "opensubtitles.api_key": {
+        "apply": "live",
+        "source": "default"
+      },
+      "opensubtitles.password": {
+        "apply": "live",
+        "source": "default"
+      },
+      "opensubtitles.username": {
+        "apply": "live",
+        "source": "default"
+      },
+      "performance.cache_max_gb": {
+        "apply": "restart",
+        "source": "default"
+      },
+      "performance.convert_jobs": {
+        "apply": "restart",
+        "source": "default"
+      },
+      "performance.download_jobs": {
+        "apply": "restart",
+        "source": "default"
+      },
+      "performance.download_max_gb": {
+        "apply": "restart",
+        "source": "default"
+      },
+      "performance.jobs": {
+        "apply": "restart",
+        "source": "default"
+      },
+      "performance.scan_full_hours": {
+        "apply": "live",
+        "source": "default"
+      },
+      "performance.scan_probe_jobs": {
+        "apply": "live",
+        "source": "default"
+      },
+      "performance.scan_quick_secs": {
+        "apply": "live",
+        "source": "default"
+      },
+      "performance.transcode_jobs": {
+        "apply": "restart",
+        "source": "default"
+      },
+      "performance.trickplay_max_gb": {
+        "apply": "restart",
+        "source": "default"
+      },
+      "server.name": {
+        "apply": "live",
+        "source": "store"
+      },
+      "smb.signing": {
+        "apply": "live",
+        "source": "default"
+      },
+      "tmdb.api_key": {
+        "apply": "live",
+        "source": "default"
+      },
+      "transcode.device": {
+        "apply": "restart",
+        "source": "default"
+      },
+      "transcode.hardware": {
+        "apply": "restart",
+        "source": "default"
+      }
+    },
+    "libraries": {
+      "items": [
+        {
+          "id": "movies",
+          "kind": "mixed",
+          "name": "Films",
+          "roots": [
+            {
+              "available": true,
+              "path": "/media/Movies",
+              "source": "local"
+            }
+          ]
+        },
+        {
+          "id": "shows",
+          "kind": "mixed",
+          "name": "Shows",
+          "roots": [
+            {
+              "available": true,
+              "path": "/media/Shows",
+              "source": "local"
+            }
+          ]
+        }
+      ],
+      "managed_by": "store"
+    },
+    "restart_required": [],
+    "settings": {
+      "features": {
+        "burn": true,
+        "convert": true,
+        "credits_detect": true,
+        "db": true,
+        "downloads": true,
+        "index_backfill": true,
+        "library": true,
+        "llm": true,
+        "mdns": false,
+        "moonrise_auth": true,
+        "mp4_index": true,
+        "opensubtitles": true,
+        "probe_cache": true,
+        "ratings": true,
+        "scan_index": true,
+        "subs_backfill": true,
+        "subs_extract": true,
+        "subs_sync": true,
+        "subs_windows": true,
+        "transcode": true,
+        "trickplay": true
+      },
+      "llm": {
+        "api_key": {
+          "set": false
+        },
+        "base_url": "https://api.anthropic.com",
+        "enabled": true,
+        "max_calls_per_scan": 200,
+        "model": "claude-haiku-5-5",
+        "output": "schema",
+        "provider": "anthropic"
+      },
+      "metadata": {
+        "country": "US",
+        "language": "en"
+      },
+      "omdb": {
+        "api_key": {
+          "set": false
+        }
+      },
+      "opensubtitles": {
+        "api_key": {
+          "set": false
+        },
+        "password": {
+          "set": false
+        },
+        "username": ""
+      },
+      "performance": {
+        "cache_max_gb": 10,
+        "convert_jobs": 4,
+        "download_jobs": 1,
+        "download_max_gb": 12,
+        "jobs": 4,
+        "scan_full_hours": 6,
+        "scan_probe_jobs": 1,
+        "scan_quick_secs": 120,
+        "transcode_jobs": 2,
+        "trickplay_max_gb": 10
+      },
+      "server": {
+        "name": "Demo Server"
+      },
+      "smb": {
+        "signing": "auto"
+      },
+      "tmdb": {
+        "api_key": {
+          "set": false
+        }
+      },
+      "transcode": {
+        "device": "",
+        "hardware": "auto"
+      }
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "summary": "A movie named from its file (no TMDB key), matched by hand",
+  "value": {
+    "candidates": [],
+    "episode": null,
+    "file_list": [
+      {
+        "duration": null,
+        "id": "01exampleid000000000000008",
+        "manual": true,
+        "name": "Big Buck Bunny (2008).mp4",
+        "size": 3858575,
+        "split": false
+      }
+    ],
+    "files": [
+      "/media/Movies/Big Buck Bunny (2008).mp4"
+    ],
+    "id": "01exampleid000000000000002",
+    "kind": "movie",
+    "local": true,
+    "manual": true,
+    "note": null,
+    "part": null,
+    "season": null,
+    "series_id": null,
+    "series_title": null,
+    "series_tmdb_id": null,
+    "source": "local",
+    "state": "manual",
+    "title": "Big Buck Bunny",
+    "tmdb": false,
+    "tmdb_id": null,
+    "year": 2008
+  }
+}

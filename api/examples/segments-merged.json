@@ -1,0 +1,23 @@
+{
+  "summary": "Merged: the file's chapters and the community databases' credits (a film)",
+  "value": {
+    "items": [
+      {
+        "end": 98.5,
+        "kind": "intro",
+        "source": "chapters",
+        "start": 0.0
+      },
+      {
+        "end": 7210.828,
+        "kind": "credits",
+        "source": "chapters",
+        "start": 6852.0
+      }
+    ],
+    "total": 2,
+    "pending": false,
+    "merged": true,
+    "community_pending": false
+  }
+}

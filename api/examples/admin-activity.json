@@ -1,0 +1,97 @@
+{
+  "summary": "Two titles playing, thumbnails being made",
+  "value": {
+    "downloads": [],
+    "errors": [
+      "2026-11-09T00:19:10.146851Z  WARN req{auth=\"moonrise\"}: moonrise_server::api: 502 Bad Gateway: models request failed (timeout)"
+    ],
+    "index_backfill": {
+      "current": null,
+      "done": 0,
+      "failed": 0,
+      "files": 0,
+      "pass_started": 1794183966,
+      "secs": 0.0,
+      "state": "idle"
+    },
+    "scan": {
+      "full": false,
+      "identify": {
+        "done": 1,
+        "total": 1
+      },
+      "last_pass": {
+        "aborted": null,
+        "at": "2026-11-09T00:24:52.000Z",
+        "error": null,
+        "files_seen": 3,
+        "ms": 33,
+        "offline": []
+      },
+      "phase": "idle",
+      "started_at": null,
+      "walked": 0
+    },
+    "sessions": [
+      {
+        "burn": null,
+        "duration": 150.000998,
+        "idle_secs": 0,
+        "item_id": "01exampleid000000000000002",
+        "kind": "movie",
+        "method": "copy",
+        "series_title": null,
+        "sid": "exampleSessionMovie01",
+        "title": "Big Buck Bunny",
+        "tonemap": false,
+        "user": "demo",
+        "user_id": "01exampleid000000000000004",
+        "variant": "Original"
+      },
+      {
+        "burn": null,
+        "duration": 150.000998,
+        "episode_label": "S1E1",
+        "idle_secs": 7,
+        "item_id": "01exampleid000000000000005",
+        "kind": "episode",
+        "method": "copy",
+        "series_title": "Demo Series",
+        "sid": "exampleSessionEpisode1",
+        "title": "Episode 1",
+        "tonemap": false,
+        "user": "demo",
+        "user_id": "01exampleid000000000000004",
+        "variant": "Original"
+      }
+    ],
+    "subtitles": {
+      "backfill": {
+        "current": null,
+        "done": 3,
+        "extracted_this_run": 0,
+        "failed": 0,
+        "files": 3,
+        "pass_started": 1794183966,
+        "secs_this_run": 0.0
+      },
+      "extractions": [],
+      "timing_matches": 0
+    },
+    "transcode_slots": 2,
+    "transcodes": [],
+    "trickplay": {
+      "bytes": 0,
+      "current": "Demo Series S01E01.mp4",
+      "done": 0,
+      "failed": 0,
+      "files": 3,
+      "max_bytes": 10737418240,
+      "of": 16,
+      "pictures": 0,
+      "skipped": 0,
+      "skipped_why": [],
+      "state": "paused"
+    }
+  }
+}

@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# Tracked pre-push hook: `make hooks` turns it on (git config core.hooksPath .githooks).
+# Refuses a push to main (MOONRISE_ALLOW_MAIN_PUSH=1 overrides it), and any push whose tree, commit
+# messages or commit identities contain the private details that scripts/export-public.sh scans
+# for: its PATTERNS list, plus your own patterns (one extended regex a line, # for comments) in the
+# git-ignored scripts/local/private-patterns.txt, if present, and in your user file,
+# ~/.config/moonrise/private-patterns.txt (or $MOONRISE_PRIVATE_PATTERNS). Without the user file at
+# its usual place the hook says so and checks only the generic patterns; a file named by
+# MOONRISE_PRIVATE_PATTERNS that isn't there or can't be read refuses the push, as a typo there
+# would drop your patterns without a word.
+# A hit is reported by place and by the pattern's label (its comment there) and the match's length,
+# with its first 2 characters only when they are the start of one of the pattern's alternatives as
+# written, as export-public.sh does. The line itself is never printed: the rest of it could hold
+# anything, a key included.
+set -uo pipefail
+ROOT="$(git rev-parse --show-toplevel)"
+SRC="$ROOT/scripts/export-public.sh"
+PATTERNS=()
+[ -f "$SRC" ] && eval "$(sed -n '/^PATTERNS=(/,/^)/p' "$SRC")"
+LABELS=()
+[ -f "$SRC" ] && while IFS= read -r l; do
+  case $l in *"'"*) ;; *) continue ;; esac
+  c=$(printf '%s\n' "$l" | sed -E "s/^[[:space:]]*'[^']*'[[:space:]]*//; s/^#[[:space:]]*//")
+  LABELS+=("${c:-pattern $(( ${#LABELS[@]} + 1 ))}")
+done < <(sed -n '/^PATTERNS=(/,/^)/p' "$SRC")
+if [ "${#LABELS[@]}" != "${#PATTERNS[@]}" ]; then
+  LABELS=(); for i in "${!PATTERNS[@]}"; do LABELS+=("pattern $((i + 1))"); done
+fi
+# Your own patterns (one extended regex a line, # for comments): the git-ignored
+# scripts/local/private-patterns.txt of this checkout, and your user file, which every clone of
+# yours reads: $MOONRISE_PRIVATE_PATTERNS, else ~/.config/moonrise/private-patterns.txt.
+add_patterns() {   # add_patterns <file> <label>
+  local n=0 l
+  [ -f "$1" ] || return 0
+  while IFS= read -r l || [ -n "$l" ]; do
+    n=$((n + 1))
+    [ -n "$l" ] && [ "${l#\#}" = "$l" ] && PATTERNS+=("$l") && LABELS+=("$2 line $n")
+  done < "$1"
+}
+add_patterns "$ROOT/scripts/local/private-patterns.txt" private-patterns.txt
+USER_PATTERNS=${MOONRISE_PRIVATE_PATTERNS:-${XDG_CONFIG_HOME:-$HOME/.config}/moonrise/private-patterns.txt}
+if [ -f "$USER_PATTERNS" ] && [ -r "$USER_PATTERNS" ]; then
+  add_patterns "$USER_PATTERNS" "your private-patterns.txt"
+elif [ -n "${MOONRISE_PRIVATE_PATTERNS:-}" ]; then
+  echo "pre-push: MOONRISE_PRIVATE_PATTERNS names $USER_PATTERNS, which isn't there or can't be read;" >&2
+  echo "pre-push: fix the path, or unset it to use ~/.config/moonrise/private-patterns.txt. Push refused." >&2
+  exit 1
+else
+  echo "pre-push: no personal patterns file at $USER_PATTERNS: only the generic patterns of" >&2
+  echo "pre-push: scripts/export-public.sh are checked (and scripts/local/private-patterns.txt, if present)." >&2
+  echo "pre-push: to add yours, create it with one extended regex a line; see CONTRIBUTING.md." >&2
+fi
+# Reads "place<0x01>match" lines; prints place, label and the masked match. $1 is the label, $2 the
+# pattern: the same rule as export-public.sh's private-details scan.
+show() { LABEL=$1 PAT=$2 LC_ALL=C awk -F'\001' '
+  BEGIN { n = split(ENVIRON["PAT"], alt, "|")
+    for (a = 1; a <= n; a++) {
+      s = alt[a]; sub(/^\^/, "", s); sub(/^\\b/, "", s); lit = ""
+      while (length(lit) < 2 && s != "") {
+        c = substr(s, 1, 1); s = substr(s, 2)
+        if (c == "\\") { c = substr(s, 1, 1); s = substr(s, 2); if (c !~ /^[.\/@-]$/) break }
+        else if (c !~ /^[a-zA-Z0-9_@\/:-]$/) break
+        if (s ~ /^[?*{]/) break
+        lit = lit c
+      }
+      if (length(lit) == 2) start[tolower(lit)] = 1
+    } }
+  { m = substr($2, 1, 2); m = (tolower(m) in start) ? m "... " : ""
+    printf "  %s  %s  [%s%d chars]\n", $1, ENVIRON["LABEL"], m, length($2) }'; }
+Z=0000000000000000000000000000000000000000; FAIL=0
+while read -r lref lsha rref rsha; do
+  [ "$lsha" = "$Z" ] && continue
+  if [ "$rref" = refs/heads/main ] && [ "${MOONRISE_ALLOW_MAIN_PUSH:-}" != 1 ]; then
+    echo "pre-push: main takes changes through pull requests; push a branch" >&2; FAIL=1
+  fi
+  # Only commits not on GitHub yet: after a rebase, rsha..lsha would include main commits
+  # already there (whose committer GitHub sets on merge, which the owner accepted).
+  COMMITS=$(git rev-list "$lsha" --not --remotes)
+  TREE=""; MSGS=""
+  for i in "${!PATTERNS[@]}"; do
+    P=$(printf '%s\n' "${PATTERNS[$i]}" | sed -E 's/[[:space:]]+#.*$//')
+    [ -n "$P" ] || continue
+    # git grep -z: "<commit>:<file>\0<line>\0<column>\0<match>"; the commit is left out.
+    H=$(git grep -z -nIiE --column -o -e "$P" "$lsha" -- . ':!scripts/export-public.sh' \
+      | LC_ALL=C tr '\000' '\001' \
+      | LC_ALL=C awk -F'\001' '{ printf "%s:%s:%s\001%s\n", substr($1, index($1, ":") + 1), $2, $3, $4 }' \
+      | show "${LABELS[$i]}" "$P")
+    [ -z "$H" ] || TREE+="$H"$'\n'
+    for c in $COMMITS; do
+      # Line 1 is the identities, the rest the message.
+      H=$(git show -s --format='%an <%ae> %cn <%ce>%n%B' "$c" | grep -noiE -e "$P" \
+        | LC_ALL=C awk -v c="${c:0:7}" '{ n = substr($0, 1, index($0, ":") - 1); m = substr($0, index($0, ":") + 1)
+            printf "commit %s %s\001%s\n", c, (n == 1 ? "identities" : "message line " (n - 1)), m }' \
+        | show "${LABELS[$i]}" "$P")
+      [ -z "$H" ] || MSGS+="$H"$'\n'
+    done
+  done
+  [ -n "$TREE" ] && { echo "pre-push: private details in the tree:" >&2; printf %s "$TREE" | sed -n '1,20p' >&2; FAIL=1; }
+  [ -n "$MSGS" ] && { echo "pre-push: private details in commit messages or identities:" >&2; printf %s "$MSGS" | sed -n '1,20p' >&2; FAIL=1; }
+done
+exit $FAIL

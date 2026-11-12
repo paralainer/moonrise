@@ -1,0 +1,102 @@
+{
+  "summary": "Copied, with a sidecar and an embedded subtitle",
+  "value": {
+    "item_id": "01exampleid000000000000002",
+    "media_source_id": "01exampleid000000000000008",
+    "version": "77de0610738b4d3c",
+    "source_kind": "local",
+    "container": "matroska,webm",
+    "duration": 150.021,
+    "supported": true,
+    "reasons": [],
+    "method": "copy",
+    "pending": false,
+    "video": {
+      "index": 1,
+      "stream": 0,
+      "codec": "h264",
+      "codecs_attr": "avc1.42001E",
+      "width": 640,
+      "height": 360,
+      "frame_rate": 24.0,
+      "range": "SDR",
+      "bitrate": 1000000
+    },
+    "audio": [
+      {
+        "index": 2,
+        "stream": 1,
+        "codec": "aac",
+        "codecs_attr": "mp4a.40.2",
+        "name": "English - AAC - Mono",
+        "language": "en",
+        "channels": 1,
+        "default": true,
+        "converted": false,
+        "conversion": null
+      }
+    ],
+    "subtitles": [
+      {
+        "index": 0,
+        "stream": null,
+        "text": true,
+        "codec": "subrip",
+        "name": "French - SUBRIP - External",
+        "language": "fr",
+        "forced": false,
+        "default": false,
+        "external": true,
+        "source": "sidecar",
+        "url": "/v1/items/01exampleid000000000000002/subtitles/0.srt"
+      },
+      {
+        "index": 3,
+        "stream": 2,
+        "text": true,
+        "codec": "subrip",
+        "name": "English - SUBRIP",
+        "language": "en",
+        "forced": false,
+        "default": false,
+        "external": false,
+        "source": "embedded",
+        "url": "/v1/items/01exampleid000000000000002/subtitles/3.srt"
+      }
+    ],
+    "master": "/v1/s/hIGryTMjp98hA3qnqr6h5axU/master.m3u8",
+    "variants": [
+      {
+        "id": "copy",
+        "label": "Original",
+        "bitrate": 1000000,
+        "width": 640,
+        "height": 360,
+        "codec": "h264",
+        "range": "SDR",
+        "transcode": false,
+        "tonemap": false,
+        "burn": null
+      }
+    ],
+    "variant": "copy",
+    "notes": [],
+    "session": "hIGryTMjp98hA3qnqr6h5axU",
+    "tracks": {
+      "same_file": true,
+      "audio": {
+        "index": 2,
+        "language": "en",
+        "title": "English - AAC - Mono"
+      },
+      "subtitle": {
+        "index": 0,
+        "language": "fr",
+        "title": "French - SUBRIP - External",
+        "forced": false,
+        "sdh": false
+      },
+      "subtitle_off": false
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "summary": "The new track",
+  "value": {
+    "index": 10000,
+    "stream": null,
+    "text": true,
+    "codec": "subrip",
+    "name": "German - Added",
+    "language": "de",
+    "forced": false,
+    "default": false,
+    "external": true,
+    "source": "upload",
+    "url": "/v1/items/01exampleid000000000000002/subtitles/10000.srt"
+  }
+}

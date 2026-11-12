@@ -1,0 +1,42 @@
+# from 0
+segment 0: 7150 bytes, fnv 953a3e702fccc71c
+segment 1: 7125 bytes, fnv 467bb93ed012a196
+segment 2: 9450 bytes, fnv 6bcefb29f37c85ca
+cache conv-init/v1/aac-2ch-192k-48000.mp4: 168 bytes, fnv 2c1dab34b11a9436
+cache i/v/conv1/a1-aac-2ch-192k-48000/0.m4s: 7150 bytes, fnv 953a3e702fccc71c
+cache i/v/conv1/a1-aac-2ch-192k-48000/1.m4s: 7125 bytes, fnv 467bb93ed012a196
+cache i/v/conv1/a1-aac-2ch-192k-48000/2.m4s: 9450 bytes, fnv 6bcefb29f37c85ca
+cache i/v/conv1/a1-aac-2ch-192k-48000/init.mp4: 168 bytes, fnv 2c1dab34b11a9436
+ffmpeg -nostdin -hide_banner -nostats -v info -noaccurate_seek -i /m/film.mkv -copyts -map 0:1 -vn -sn -dn -af ashowinfo,aresample=48000:async=1 -ac 2 -f f32le pipe:1
+ffmpeg -nostdin -v error -f f32le -ar 48000 -ch_layout stereo -i pipe:0 -c:a aac -b:a 192000 -ac 2 -ar 48000 -f adts pipe:1
+# from 1
+segment 1: 7125 bytes, fnv edf8c5ba8168b7e2
+segment 2: 12675 bytes, fnv 798aa52327d59497
+cache conv-init/v1/aac-2ch-192k-48000.mp4: 168 bytes, fnv 2c1dab34b11a9436
+cache i/v/conv1/a1-aac-2ch-192k-48000/1.m4s: 7125 bytes, fnv edf8c5ba8168b7e2
+cache i/v/conv1/a1-aac-2ch-192k-48000/2.m4s: 12675 bytes, fnv 798aa52327d59497
+cache i/v/conv1/a1-aac-2ch-192k-48000/init.mp4: 168 bytes, fnv 2c1dab34b11a9436
+ffmpeg -nostdin -hide_banner -nostats -v info -noaccurate_seek -ss 2.525 -i /m/film.mkv -copyts -map 0:1 -vn -sn -dn -af ashowinfo,aresample=48000:async=1 -ac 2 -f f32le pipe:1
+ffmpeg -nostdin -v error -f f32le -ar 48000 -ch_layout stereo -i pipe:0 -c:a aac -b:a 192000 -ac 2 -ar 48000 -f adts pipe:1
+# from 0, the source 0.5 s late
+segment 0: 7150 bytes, fnv 953a3e702fccc71c
+segment 1: 7125 bytes, fnv 467bb93ed012a196
+segment 2: 10025 bytes, fnv 761d6c09d54c4922
+cache conv-init/v1/aac-2ch-192k-48000.mp4: 168 bytes, fnv 2c1dab34b11a9436
+cache i/v/conv1/a1-aac-2ch-192k-48000/0.m4s: 7150 bytes, fnv 953a3e702fccc71c
+cache i/v/conv1/a1-aac-2ch-192k-48000/1.m4s: 7125 bytes, fnv 467bb93ed012a196
+cache i/v/conv1/a1-aac-2ch-192k-48000/2.m4s: 10025 bytes, fnv 761d6c09d54c4922
+cache i/v/conv1/a1-aac-2ch-192k-48000/init.mp4: 168 bytes, fnv 2c1dab34b11a9436
+ffmpeg -nostdin -hide_banner -nostats -v info -noaccurate_seek -i /m/film.mkv -copyts -map 0:1 -vn -sn -dn -af ashowinfo,aresample=48000:async=1 -ac 2 -f f32le pipe:1
+ffmpeg -nostdin -v error -f f32le -ar 48000 -ch_layout stereo -i pipe:0 -c:a aac -b:a 192000 -ac 2 -ar 48000 -f adts pipe:1
+# from 0, a file starting at 1001 s
+segment 0: 7150 bytes, fnv 818c210da2658766
+segment 1: 7125 bytes, fnv 7ed3ecfd1fe2fe42
+segment 2: 9450 bytes, fnv a6ff1f8282b88866
+cache conv-init/v1/aac-2ch-192k-48000.mp4: 168 bytes, fnv 2c1dab34b11a9436
+cache i/v/conv1/a1-aac-2ch-192k-48000-tl2/0.m4s: 7150 bytes, fnv 818c210da2658766
+cache i/v/conv1/a1-aac-2ch-192k-48000-tl2/1.m4s: 7125 bytes, fnv 7ed3ecfd1fe2fe42
+cache i/v/conv1/a1-aac-2ch-192k-48000-tl2/2.m4s: 9450 bytes, fnv a6ff1f8282b88866
+cache i/v/conv1/a1-aac-2ch-192k-48000-tl2/init.mp4: 168 bytes, fnv 2c1dab34b11a9436
+ffmpeg -nostdin -hide_banner -nostats -v info -noaccurate_seek -i /m/film.mkv -copyts -map 0:1 -vn -sn -dn -af ashowinfo,aresample=48000:async=1 -ac 2 -f f32le pipe:1
+ffmpeg -nostdin -v error -f f32le -ar 48000 -ch_layout stereo -i pipe:0 -c:a aac -b:a 192000 -ac 2 -ar 48000 -f adts pipe:1

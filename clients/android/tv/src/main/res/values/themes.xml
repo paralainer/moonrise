@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Moonrise" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/background</item>
+        <item name="android:colorBackground">@color/background</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
+    <color name="background">#FF0D0F14</color>
+    <!-- The adaptive icon's background, behind the Moonrise mark. -->
+    <color name="ic_launcher_background">#FF000000</color>
+</resources>

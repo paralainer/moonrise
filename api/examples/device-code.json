@@ -1,0 +1,11 @@
+{
+  "summary": "A code to show on the TV",
+  "value": {
+    "device_code": "dc_EXAMPLE-device-code-not-real-0123456789",
+    "expires_in": 600,
+    "interval": 5,
+    "user_code": "XRNN-6068",
+    "verify_url": "http://192.168.1.20:8097/link",
+    "verify_url_complete": "http://192.168.1.20:8097/link?code=XRNN-6068"
+  }
+}

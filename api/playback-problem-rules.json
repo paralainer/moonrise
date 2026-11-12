@@ -1,0 +1,24 @@
+{
+  "description": "How the apps name a playback failure: from the HTTP status of the server's answer (null: no answer at all) and its text (the plain-text body, an offer's `reasons` joined with \"; \", or a file's `broken_reason`), and `pending` (an offer still indexing), the kind of problem. Each kind has a short title and one plain line in every app; the server's own text stays available as the details. Rules, first match wins: no answer -> unreachable; pending -> preparing; then by the text (case-insensitive): \"no such file or directory\" -> missing; \"can't be reached\", \"not mounted\", \"isn't mounted\" -> share; \"damaged\", \"incomplete\", \"truncated\", \"ebml\", \"invalid data found\", \"moov atom not found\", \"end of file\" -> damaged; \"keyframe index pending\" -> preparing; \"keyframe index\", \"no cues\" -> unindexed; \"slots busy\" -> busy; then 404 (the title has no file the server can find) -> missing; 500 and above -> server; anything else -> unsupported. Checked by the Apple apps (PlaybackProblemTests), the Android apps (PlaybackProblemCasesTest) and the Windows app (SharedCasesTests).",
+  "cases": [
+    { "name": "No answer (the server is off, or the device isn't on its network)", "status": null, "text": "Could not connect to the server.", "expected": "unreachable" },
+    { "name": "No answer and no text", "status": null, "text": "", "expected": "unreachable" },
+    { "name": "The offer says the file is still being indexed", "status": 200, "text": "keyframe index pending (scanning the file)", "pending": true, "expected": "preparing" },
+    { "name": "A pending reason without the flag", "status": 200, "text": "keyframe index pending (scanning the file)", "expected": "preparing" },
+    { "name": "A file removed from disk (segment answer)", "status": 500, "text": "ffmpeg: [in#0 @ 0x636cc5c12840] Error opening input: No such file or directory\nError opening input file /media/movies/Film (2017).mkv.\nError opening input files: No such file or directory", "expected": "missing" },
+    { "name": "A network share the server can't read", "status": 500, "text": "read /Movies/Film.mkv: the server can't be reached (read: connection lost)", "expected": "share" },
+    { "name": "A share that isn't mounted", "status": 404, "text": "the share it is on isn't mounted", "expected": "share" },
+    { "name": "A truncated Matroska file (offer reasons)", "status": 200, "text": "the file is damaged or incomplete (its keyframe index can't be read); re-download it", "expected": "damaged" },
+    { "name": "A truncated file's broken_reason", "status": 422, "text": "damaged or incomplete: truncated", "expected": "damaged" },
+    { "name": "An unreadable file (raw ffprobe text, 422)", "status": 422, "text": "probe: ffprobe: [matroska,webm @ 0x61e44a2b7940] Length 6 indicated by an EBML number's first byte 0x04 at pos 0 (0x0) exceeds max length 4.\n[matroska,webm @ 0x61e44a2b7940] EBML header parsing failed\n/media/movies/Film (2018).mkv: Invalid data found when processing input", "expected": "damaged" },
+    { "name": "An MP4 without its index", "status": 422, "text": "probe: ffprobe: [mov,mp4,m4a,3gp,3g2,mj2 @ 0x55] moov atom not found", "expected": "damaged" },
+    { "name": "A Matroska file with no Cues", "status": 200, "text": "no keyframe index: no Cues found", "expected": "unindexed" },
+    { "name": "All transcode slots taken", "status": 200, "text": "transcode slots busy", "expected": "busy" },
+    { "name": "No file left on disk (playback answers 404 no such item)", "status": 404, "text": "no such item", "expected": "missing" },
+    { "name": "A server error with no known text", "status": 500, "text": "database is locked", "expected": "server" },
+    { "name": "A gateway in front of the server", "status": 502, "text": "", "expected": "server" },
+    { "name": "Unsupported for this device", "status": 200, "text": "quality 4000000 needs transcoding (switched off)", "expected": "unsupported" },
+    { "name": "A refusal with no text", "status": 422, "text": "", "expected": "unsupported" },
+    { "name": "Case doesn't matter", "status": 500, "text": "NO SUCH FILE OR DIRECTORY", "expected": "missing" }
+  ]
+}

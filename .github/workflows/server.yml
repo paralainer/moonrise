@@ -1,0 +1,120 @@
+# Manual only: this workflow never runs on push or pull request. The gate for every change is the
+# local check (`make check`); see CONTRIBUTING.md. Run it by hand from
+# Actions → Server → Run workflow when a hosted build is wanted. Run on a v* tag, it also builds
+# the release image and pushes it when the repository has the built-in keys (docs/publishing.md).
+
+name: Server
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server
+      - run: cargo test --locked
+      - run: cargo clippy --locked --all-targets -- -D warnings
+
+  # The macOS server: Apple silicon and Intel, joined into one universal binary with the install
+  # scripts (docs/install-macos.md). Kept as a workflow artifact; nothing is published.
+  macos:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server
+      - run: cargo test --locked
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: packaging/macos/build.sh
+      - run: |
+          bin=$(ls -d target/macos/moonrise-server-*-macos)/moonrise-server
+          lipo -info "$bin" | grep -q "x86_64 arm64"
+          "$bin" --version
+          bash -n packaging/macos/install.sh && bash -n packaging/macos/uninstall.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: moonrise-server-macos
+          path: server/target/macos/*.tar.gz
+
+  # The arm64 image on an arm64 runner (no emulation anywhere): built, then its ffmpeg checked for
+  # the Raspberry Pi 4's V4L2 encoder. Not pushed.
+  arm64-image:
+    needs: test
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - run: docker buildx build --platform linux/arm64 --load -t moonrise-server:arm64 server
+      - run: |
+          docker run --rm moonrise-server:arm64 --version
+          docker run --rm --entrypoint ffmpeg moonrise-server:arm64 -hide_banner -encoders | grep -q h264_v4l2m2m
+          docker run --rm --entrypoint ffmpeg moonrise-server:arm64 -hide_banner -filters | grep -q zscale
+
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      # No QEMU: arm64 is cross-compiled and its ffmpeg unpacked on the runner (see Dockerfile).
+      - uses: docker/setup-buildx-action@v3
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/moonrise-server
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=sha
+      # Pushed only for version tags (v*), and only when the repository has the built-in keys.
+      - id: push
+        run: echo "push=${{ startsWith(github.ref, 'refs/tags/v') && secrets.MOONRISE_BUILTIN_TMDB_KEY != '' }}" >> "$GITHUB_OUTPUT"
+      - if: steps.push.outputs.push == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Built-in keys (release images only)
+        if: steps.push.outputs.push == 'true'
+        env:
+          TMDB: ${{ secrets.MOONRISE_BUILTIN_TMDB_KEY }}
+          OPENSUBTITLES: ${{ secrets.MOONRISE_BUILTIN_OPENSUBTITLES_KEY }}
+        run: |
+          umask 077
+          printf 'MOONRISE_BUILTIN_TMDB_KEY=%s\nMOONRISE_BUILTIN_OPENSUBTITLES_KEY=%s\n' "$TMDB" "$OPENSUBTITLES" > "$RUNNER_TEMP/keys.env"
+      - uses: docker/build-push-action@v6
+        with:
+          context: server
+          platforms: linux/amd64,linux/arm64
+          push: ${{ steps.push.outputs.push == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          secret-files: |
+            ${{ steps.push.outputs.push == 'true' && format('builtin_keys={0}/keys.env', runner.temp) || '' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

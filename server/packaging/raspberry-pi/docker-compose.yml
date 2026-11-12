@@ -1,0 +1,25 @@
+# Moonrise server on a Raspberry Pi 4 or 5 (64-bit OS). See docs/install-raspberry-pi.md.
+# Uses the published image (or build it yourself: docker buildx build --platform linux/arm64
+# --load -t moonrise-server ../.., and set image: moonrise-server).
+services:
+  moonrise-server:
+    image: ghcr.io/paralainer/moonrise-server:latest
+    container_name: moonrise-server
+    restart: unless-stopped
+    network_mode: host          # the apps find it on the network
+    environment:
+      MOONRISE_LISTEN: 0.0.0.0:8097
+      MOONRISE_CACHE_DIR: /data/cache
+      MOONRISE_RESTART: exit
+    # The Pi 4's hardware video encoder and decoder (V4L2):
+    devices:
+      - /dev/video10:/dev/video10
+      - /dev/video11:/dev/video11
+      - /dev/video12:/dev/video12
+    group_add:
+      - video
+    mem_limit: 1500m            # leaves room for everything else on the Pi
+    volumes:
+      - ./moonrise-data:/data
+      # videos on this Pi (a USB disk), read-only; a NAS needs nothing here (add it in the app)
+      # - /mnt/videos:/media:ro

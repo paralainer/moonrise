@@ -1,0 +1,63 @@
+{
+  "summary": "A show's seasons",
+  "value": {
+    "items": [
+      {
+        "added_at": "2026-11-08T20:51:06.000Z",
+        "child_count": 2,
+        "community_rating": null,
+        "critic_rating": null,
+        "end_date": null,
+        "episode_end": null,
+        "episode_no": null,
+        "genres": [],
+        "id": "01exampleid000000000000003",
+        "identify": {
+          "confidence": 0.0,
+          "note": "no confident TMDB match",
+          "source": "parse",
+          "state": "review"
+        },
+        "images": {
+          "backdrop": [],
+          "logo": null,
+          "poster": null,
+          "thumb": null
+        },
+        "kind": "season",
+        "library_id": "media",
+        "official_rating": null,
+        "original_title": null,
+        "overview": null,
+        "parent_images": {
+          "backdrop": [],
+          "logo": null,
+          "poster": null,
+          "thumb": null
+        },
+        "premiere_date": null,
+        "provider_ids": {},
+        "runtime": null,
+        "season_id": null,
+        "season_no": 1,
+        "season_title": null,
+        "series_id": "01exampleid000000000000001",
+        "series_title": "Demo Series",
+        "sort_title": "Season 1",
+        "status": null,
+        "studios": [],
+        "tagline": null,
+        "title": "Season 1",
+        "updated_at": "2026-11-08T23:51:06.000Z",
+        "user": {
+          "last_played_at": null,
+          "played": false,
+          "position": 0.0,
+          "unplayed_item_count": 2
+        },
+        "year": null
+      }
+    ],
+    "total": 1
+  }
+}

@@ -1,0 +1,52 @@
+# Moonrise server. In the server/ folder of a clone of the repository, run
+# `docker compose up -d --build`, then open the Moonrise app on a phone, tablet, computer or TV: it
+# finds the server and guides you through the rest (setup code, admin account, your media folders
+# or network shares, optional extras). Everything else is set in the app and kept in the server's
+# database.
+#
+# Any setting can also be given here as an environment variable (see docs/server-settings.md);
+# a variable that is set wins over what the app stores, and the app shows it as set here.
+services:
+  moonrise-server:
+    # Built from this folder (the Dockerfile beside this file), named moonrise-server:local.
+    # Once a released image is published, this file can be used on its own instead: replace
+    # these two lines with `image: ghcr.io/paralainer/moonrise-server:latest`.
+    # Working on Moonrise itself? `make server-run` in a clone runs it from source with a
+    # published port and the data in the checkout (compose.dev.yml, beside this file).
+    build: .
+    image: moonrise-server:local
+    container_name: moonrise-server
+    restart: unless-stopped
+    # Host networking: the apps find the server on the local network (Bonjour) and the setup
+    # page shows the right address. Without it (some NAS apps insist on a bridge), delete this
+    # line and uncomment `ports` and MOONRISE_DISABLE below: the apps still find the server by
+    # sweeping the local network, or you type its address.
+    network_mode: host
+    # ports:
+    #   - "8097:8097"
+    environment:
+      # The port the server answers on (the apps look for 8097 when discovering).
+      MOONRISE_LISTEN: 0.0.0.0:8097
+      # Everything in one volume: the database, subtitles, artwork, and the stream cache.
+      MOONRISE_CACHE_DIR: /data/cache
+      # The apps' "Restart Server": the server exits and Docker starts it again.
+      MOONRISE_RESTART: exit
+      # MOONRISE_DISABLE: mdns
+      # Hardware transcoding is found by itself (NVIDIA, Intel, AMD, else the CPU); to pick one:
+      # MOONRISE_HWACCEL: auto   # auto | nvidia | qsv | vaapi | cpu
+      #
+      # --- NVIDIA GPU (needs the NVIDIA Container Toolkit on the host) ---
+      # NVIDIA_VISIBLE_DEVICES: all
+      # NVIDIA_DRIVER_CAPABILITIES: compute,video,utility
+    # runtime: nvidia
+    #
+    # --- Intel (Quick Sync / VA-API) or AMD (VA-API) GPU ---
+    # devices:
+    #   - /dev/dri:/dev/dri
+    volumes:
+      # The server's state. Back it up: accounts, watch history, settings, fetched subtitles.
+      - ./moonrise-data:/data
+      # Optional: video folders on this machine, read-only. Mount them anywhere under / (not
+      # /data); the app's folder picker shows them. Videos on a NAS need nothing here: add the
+      # share in the app (the server reads SMB itself).
+      # - /path/to/your/videos:/media:ro

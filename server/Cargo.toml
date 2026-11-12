@@ -1,0 +1,105 @@
+[package]
+name = "moonrise-server"
+version = "0.32.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "Moonrise server: instant HLS, native audio renditions, WebVTT subtitles, and its own library (scan, TMDB metadata, artwork, search) on local folders or SMB shares."
+
+[dependencies]
+anyhow = "1"
+argon2 = "0.5"
+axum = "0.8"
+base64 = "0.22"
+bytes = "1"
+encoding_rs = "0.8"
+# IMDb's ratings dataset is gzipped (already in the tree through png).
+flate2 = "1"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+httpdate = "1"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+libc = "0.2"
+mdns-sd = "0.13"
+if-addrs = "0.13"
+rand = "0.8"
+regex = { version = "1", default-features = false, features = ["std", "unicode-perl", "unicode-case"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
+# RS256 signature of ChatGPT ID tokens (already in the tree through rustls).
+ring = "0.17"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+sha2 = "0.10"
+# SMB2/3 client (pure Rust), vendored with one patch: see third_party/smb2/MOONRISE-PATCH.txt.
+smb2 = { path = "third_party/smb2" }
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["io"] }
+tower-http = { version = "0.6", features = ["trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+unicode-normalization = "0.1"
+
+# Lint policy (docs/dev/server.md, "Lints"): clippy's default set plus pedantic, minus the lints
+# below that are noise for this code. Each allow says why. `make check` runs clippy -D warnings.
+# third_party/ is its own package, so none of this applies to it.
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+# Every unsafe block says why it is sound, and every #[allow] says why it is there.
+undocumented_unsafe_blocks = "warn"
+allow_attributes_without_reason = "warn"
+
+# Media arithmetic (timestamps, sizes, bitrates, pixels) casts between known ranges all the time.
+cast_lossless = "allow"
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+# Doc comments name formats and tools (ffmpeg, HLS, TMDB) in prose; backticks on each would not help.
+doc_markdown = "allow"
+# One internal crate, not a published library: no `# Errors`/`# Panics` sections.
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+# Function length is a review matter; the longest have been split.
+too_many_lines = "allow"
+# Short names are the norm in the math (x, y, a, b; pts and dts).
+many_single_char_names = "allow"
+similar_names = "allow"
+# Container ids and magic numbers (EBML, MP4 boxes) read better as written.
+unreadable_literal = "allow"
+# Settings, capabilities and API answers are flags by nature.
+struct_excessive_bools = "allow"
+# Field names follow the JSON and the database (`media_source_id`, `episode` in an `Episode…`).
+struct_field_names = "allow"
+# Error helpers are passed to map_err, and axum extractors are owned: by-value is the point.
+needless_pass_by_value = "allow"
+# A small Copy value by reference costs nothing measurable; changing signatures for it is churn.
+trivially_copy_pass_by_ref = "allow"
+# Option<Option<T>> tells "not given" from "given as null" in partial updates and caches.
+option_option = "allow"
+# Separate arms name separate cases, even when they do the same thing today.
+match_same_arms = "allow"
+# Hex digests and test fixtures: a String per item is nothing at these sizes, and the fold
+# with write! that replaces it reads worse.
+format_collect = "allow"
+# `match` on Some/None names both cases; the `if let … else` it asks for hides the else
+# after a long block, and the rewrite is churn in 25 places.
+single_match_else = "allow"
+# The suggested `assert_eq!(v, [] as [T; 0])` reads worse than `assert!(v.is_empty())`.
+assert_is_empty = "allow"
+# Crate-wide since before the policy: handler errors and results are large on purpose, and the
+# query helpers return tuples.
+result_large_err = "allow"
+large_enum_variant = "allow"
+type_complexity = "allow"
+
+[dev-dependencies]
+# Signs ID tokens for the ChatGPT tests (a key made per test run).
+rsa = { version = "0.9", features = ["sha2"] }
+
+# Key generation in the tests is slow unoptimized.
+[profile.dev.package.num-bigint-dig]
+opt-level = 3
+[profile.dev.package.rsa]
+opt-level = 3
+
+[profile.release]
+lto = "thin"

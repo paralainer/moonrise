@@ -1,0 +1,18 @@
+{
+  "summary": "One library",
+  "value": {
+    "items": [
+      {
+        "backdrop": "f1a66d157c1dc19289c84df8",
+        "collection_type": "mixed",
+        "id": "media",
+        "item_count": 2,
+        "kind": "mixed",
+        "movies": 1,
+        "name": "Media",
+        "shows": 1
+      }
+    ],
+    "total": 1
+  }
+}

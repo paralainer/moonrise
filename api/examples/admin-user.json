@@ -1,0 +1,8 @@
+{
+  "summary": "The account created",
+  "value": {
+    "id": "01exampleid000000000000009",
+    "is_admin": false,
+    "name": "guest"
+  }
+}

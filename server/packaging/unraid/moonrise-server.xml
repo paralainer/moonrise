@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<!-- Unraid template for the Moonrise server. Add it under Docker → Template repositories (or copy it to
+     /boot/config/plugins/dockerMan/templates-user/my-moonrise-server.xml). -->
+<Container version="2">
+  <Name>moonrise-server</Name>
+  <Repository>ghcr.io/paralainer/moonrise-server:latest</Repository>
+  <Registry>https://github.com/paralainer/moonrise/pkgs/container/moonrise-server</Registry>
+  <Network>host</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/paralainer/moonrise/issues</Support>
+  <Project>https://github.com/paralainer/moonrise</Project>
+  <Overview>Moonrise is a video player for iPhone, iPad, Mac and Apple TV with its own server. The server reads your video folders (on this machine or on SMB shares), recognises movies and shows, fetches artwork and plots, and streams to the Moonrise apps: instant seeking, every audio track, subtitles, downloads for offline viewing, transcoding when a device needs it.[br][br]After installing, open the Moonrise app: it finds the server on your network and guides you through setup (the 6-digit setup code is in this container's log and on the WebUI page).[br][br]Hardware transcoding is detected by itself: for an Intel or AMD GPU fill in the GPU device (/dev/dri); for NVIDIA install the Nvidia-Driver plugin, add --runtime=nvidia to Extra Parameters and fill in NVIDIA_VISIBLE_DEVICES.</Overview>
+  <Category>MediaServer:Video</Category>
+  <WebUI>http://[IP]:[PORT:8097]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/paralainer/moonrise/main/server/packaging/unraid/moonrise-server.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/paralainer/moonrise/main/assets/brand/icon-glass-moonrise-play.png</Icon>
+  <ExtraParams>--restart unless-stopped</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires>Optional: an Intel/AMD GPU (/dev/dri) or an NVIDIA GPU (Nvidia-Driver plugin) for hardware transcoding.</Requires>
+  <Config Name="Data" Target="/data" Default="/mnt/user/appdata/moonrise-server" Mode="rw" Description="The server's database, subtitles, artwork and stream cache. Back it up." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/moonrise-server</Config>
+  <Config Name="Media" Target="/media" Default="/mnt/user/media" Mode="ro" Description="Optional: a video folder on this server, read-only (pick it in the app). Shares on other machines are added in the app instead." Type="Path" Display="always" Required="false" Mask="false">/mnt/user/media</Config>
+  <Config Name="Listen address" Target="MOONRISE_LISTEN" Default="0.0.0.0:8097" Mode="" Description="Address and port (the apps look for 8097)." Type="Variable" Display="advanced" Required="true" Mask="false">0.0.0.0:8097</Config>
+  <Config Name="Cache folder" Target="MOONRISE_CACHE_DIR" Default="/data/cache" Mode="" Description="Stream segments and prepared downloads (size limit set in the app)." Type="Variable" Display="advanced" Required="true" Mask="false">/data/cache</Config>
+  <Config Name="Restart from the app" Target="MOONRISE_RESTART" Default="exit" Mode="" Description="exit: the app's Restart Server exits the server and Docker starts it again." Type="Variable" Display="advanced-hide" Required="false" Mask="false">exit</Config>
+  <Config Name="Hardware transcoding" Target="MOONRISE_HWACCEL" Default="auto|nvidia|qsv|vaapi|v4l2|cpu" Mode="" Description="auto finds NVIDIA, Intel Quick Sync, VA-API (Intel/AMD), else the CPU." Type="Variable" Display="advanced" Required="false" Mask="false">auto</Config>
+  <Config Name="Intel/AMD GPU" Target="/dev/dri" Default="" Mode="" Description="For Intel Quick Sync or VA-API: /dev/dri" Type="Device" Display="always" Required="false" Mask="false"/>
+  <Config Name="NVIDIA_VISIBLE_DEVICES" Target="NVIDIA_VISIBLE_DEVICES" Default="" Mode="" Description="For NVIDIA: all (or a GPU's UUID), with --runtime=nvidia in Extra Parameters." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="NVIDIA_DRIVER_CAPABILITIES" Target="NVIDIA_DRIVER_CAPABILITIES" Default="compute,video,utility" Mode="" Description="For NVIDIA." Type="Variable" Display="advanced" Required="false" Mask="false">compute,video,utility</Config>
+</Container>

@@ -1,0 +1,16 @@
+{
+  "summary": "A library just added: its folder checked, a full scan started",
+  "value": {
+    "id": "movies",
+    "kind": "mixed",
+    "name": "Movies",
+    "roots": [
+      {
+        "available": true,
+        "path": "/media/Movies",
+        "source": "local"
+      }
+    ],
+    "scan": "started"
+  }
+}

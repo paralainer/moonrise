@@ -1,0 +1,75 @@
+{
+  "summary": "What the movie filters can pick",
+  "value": {
+    "collections": [],
+    "decades": [
+      {
+        "backdrop": "f1a66d157c1dc19289c84df8",
+        "count": 1,
+        "decade": 2000
+      }
+    ],
+    "genres": [
+      {
+        "backdrop": "f1a66d157c1dc19289c84df8",
+        "count": 1,
+        "name": "Animation"
+      },
+      {
+        "backdrop": "d1d5ffc06678ff4135956fb8",
+        "count": 1,
+        "name": "Comedy"
+      },
+      {
+        "backdrop": "4185ffb4643a77b8cf5260fc",
+        "count": 1,
+        "name": "Family"
+      }
+    ],
+    "hdr": 0,
+    "kind": "movie",
+    "libraries": [
+      {
+        "count": 1,
+        "id": "media",
+        "name": "Media"
+      }
+    ],
+    "ratings": [
+      {
+        "count": 1,
+        "name": "G"
+      }
+    ],
+    "recently_added": {
+      "count": 1,
+      "days": 30
+    },
+    "resolutions": [
+      {
+        "count": 1,
+        "name": "sd"
+      }
+    ],
+    "studios": [
+      {
+        "backdrop": "f1a66d157c1dc19289c84df8",
+        "count": 1,
+        "name": "Blender Foundation"
+      }
+    ],
+    "total": 1,
+    "watched": {
+      "all": 1,
+      "in_progress": 0,
+      "played": 0,
+      "unplayed": 1
+    },
+    "years": [
+      {
+        "count": 1,
+        "year": 2008
+      }
+    ]
+  }
+}

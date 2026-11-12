@@ -1,0 +1,15 @@
+{
+  "summary": "The models an endpoint offers",
+  "value": {
+    "models": [
+      {
+        "id": "example-model-8b",
+        "name": "example-model-8b"
+      },
+      {
+        "id": "example-model-70b",
+        "name": "example-model-70b"
+      }
+    ]
+  }
+}

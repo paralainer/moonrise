@@ -1,0 +1,31 @@
+{
+  "summary": "OpenSubtitles results",
+  "value": {
+    "quota": {
+      "account_allowed": 20,
+      "allowed": 5,
+      "remaining": 5,
+      "reset_at": null,
+      "tier": "anonymous"
+    },
+    "remaining_downloads": 5,
+    "results": [
+      {
+        "ai_translated": false,
+        "downloads": 22643,
+        "fetched": false,
+        "format": "srt",
+        "fps": 24.0,
+        "hash_match": false,
+        "hearing_impaired": false,
+        "id": "4311373",
+        "language": "en",
+        "machine_translated": false,
+        "name": "Big.Buck.Bunny.2008.720p",
+        "rating": 0.0,
+        "upload_date": "2014-09-24T14:43:45Z",
+        "uploader": "example-uploader"
+      }
+    ]
+  }
+}

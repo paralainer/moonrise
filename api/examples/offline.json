@@ -1,0 +1,51 @@
+{
+  "summary": "The original as an offline set",
+  "value": {
+    "item_id": "01exampleid000000000000002",
+    "version": "77de0610738b4d3c",
+    "variant": {
+      "id": "copy",
+      "label": "Original",
+      "bitrate": 1000000,
+      "width": 640,
+      "height": 360,
+      "codec": "h264",
+      "range": "SDR",
+      "transcode": false,
+      "tonemap": false,
+      "burn": null
+    },
+    "duration": 150.021,
+    "segments": 25,
+    "audio": [
+      {
+        "index": 2,
+        "name": "English - AAC - Mono",
+        "language": "en",
+        "channels": 1,
+        "codecs": "mp4a.40.2",
+        "default": true,
+        "converted": false
+      }
+    ],
+    "subtitles": [
+      {
+        "index": 0,
+        "name": "French - SUBRIP - External",
+        "language": "fr",
+        "forced": false
+      },
+      {
+        "index": 3,
+        "name": "English - SUBRIP",
+        "language": "en",
+        "forced": false
+      }
+    ],
+    "master": "#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-INDEPENDENT-SEGMENTS\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio\",NAME=\"English - AAC - Mono\",LANGUAGE=\"en\",DEFAULT=YES,AUTOSELECT=YES,CHANNELS=\"1\",URI=\"audio/2/index.m3u8\"\n#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"subs\",NAME=\"French - SUBRIP - External\",LANGUAGE=\"fr\",DEFAULT=NO,AUTOSELECT=NO,FORCED=NO,URI=\"subs/0/index.m3u8\"\n#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"subs\",NAME=\"English - SUBRIP\",LANGUAGE=\"en\",DEFAULT=NO,AUTOSELECT=NO,FORCED=NO,URI=\"subs/3/index.m3u8\"\n#EXT-X-STREAM-INF:BANDWIDTH=1640000,AVERAGE-BANDWIDTH=1640000,CODECS=\"avc1.42001E,mp4a.40.2\",RESOLUTION=640x360,FRAME-RATE=24.000,VIDEO-RANGE=SDR,AUDIO=\"audio\",SUBTITLES=\"subs\"\nvideo/index.m3u8\n",
+    "playlist": "#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:7\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-INDEPENDENT-SEGMENTS\n#EXT-X-MAP:URI=\"init.mp4\"\n#EXTINF:6.000,\n0.m4s\n#EXTINF:6.000,\n1.m4s\n#EXTINF:6.000,\n2.m4s\n#EXTINF:6.000,\n3.m4s\n#EXTINF:6.000,\n4.m4s\n#EXTINF:6.000,\n5.m4s\n#EXTINF:6.000,\n6.m4s\n#EXTINF:6.000,\n7.m4s\n#EXTINF:6.000,\n8.m4s\n#EXTINF:6.000,\n9.m4s\n#EXTINF:6.000,\n10.m4s\n#EXTINF:6.000,\n11.m4s\n#EXTINF:6.000,\n12.m4s\n#EXTINF:6.000,\n13.m4s\n#EXTINF:6.000,\n14.m4s\n#EXTINF:6.000,\n15.m4s\n#EXTINF:6.000,\n16.m4s\n#EXTINF:6.000,\n17.m4s\n#EXTINF:6.000,\n18.m4s\n#EXTINF:6.000,\n19.m4s\n#EXTINF:6.000,\n20.m4s\n#EXTINF:6.000,\n21.m4s\n#EXTINF:6.000,\n22.m4s\n#EXTINF:6.000,\n23.m4s\n#EXTINF:6.021,\n24.m4s\n#EXT-X-ENDLIST\n",
+    "subs_playlist": "#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:151\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:150.021,\ncues.vtt\n#EXT-X-ENDLIST\n",
+    "expected": 23553296,
+    "base": "/v1/items/01exampleid000000000000002/offline/copy"
+  }
+}

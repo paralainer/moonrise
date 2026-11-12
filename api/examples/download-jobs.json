@@ -1,0 +1,36 @@
+{
+  "summary": "One finished job",
+  "value": {
+    "disk_max": 12884901888,
+    "disk_reserved": 0,
+    "disk_used": 6958516,
+    "enabled": true,
+    "jobs": [
+      {
+        "audio": [
+          2
+        ],
+        "created_at": 1794181941,
+        "downloaded_at": 1794181949,
+        "error": null,
+        "expected": 6940534,
+        "expires_at": 1794185549,
+        "file": "/v1/download-jobs/QwuhCfL2wxuAcNL1/file",
+        "finished_at": 1794181941,
+        "id": "QwuhCfL2wxuAcNL1",
+        "item_id": "01exampleid000000000000002",
+        "label": "Original",
+        "method": "remux",
+        "params": {
+          "audio": null,
+          "container": "mp4",
+          "hdr": null,
+          "quality": null
+        },
+        "progress": 1.0,
+        "size": 6958516,
+        "state": "done"
+      }
+    ]
+  }
+}

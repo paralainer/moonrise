@@ -1,0 +1,176 @@
+{
+  "summary": "A season's episodes",
+  "value": {
+    "items": [
+      {
+        "added_at": "2026-11-08T20:51:06.000Z",
+        "community_rating": null,
+        "critic_rating": null,
+        "end_date": null,
+        "episode_end": null,
+        "episode_no": 1,
+        "genres": [],
+        "id": "01exampleid000000000000005",
+        "identify": {
+          "confidence": 0.0,
+          "note": null,
+          "source": "parse",
+          "state": "review"
+        },
+        "images": {
+          "backdrop": [],
+          "logo": null,
+          "poster": null,
+          "thumb": "af9eaed0b9809882a1e26465"
+        },
+        "kind": "episode",
+        "library_id": "media",
+        "media": {
+          "audio": [
+            {
+              "channels": 1,
+              "codec": "aac",
+              "default": false,
+              "language": "eng",
+              "profile": "LC",
+              "title": "English - AAC - Mono"
+            }
+          ],
+          "subtitles": [
+            {
+              "codec": "subrip",
+              "forced": false,
+              "language": "eng",
+              "text": true
+            }
+          ],
+          "video": {
+            "codec": "h264",
+            "height": 360,
+            "range": "SDR",
+            "title": "360p H264 SDR",
+            "width": 640
+          }
+        },
+        "official_rating": null,
+        "original_title": null,
+        "overview": null,
+        "parent_images": {
+          "backdrop": [],
+          "logo": null,
+          "poster": null,
+          "thumb": null
+        },
+        "premiere_date": null,
+        "provider_ids": {},
+        "runtime": 150.021,
+        "season_id": "01exampleid000000000000003",
+        "season_no": 1,
+        "season_title": "Season 1",
+        "series_id": "01exampleid000000000000001",
+        "series_title": "Demo Series",
+        "sort_title": "Episode 1",
+        "status": null,
+        "studios": [],
+        "tagline": null,
+        "title": "Episode 1",
+        "tmdb_runtime": 150.021,
+        "updated_at": "2026-11-08T23:51:06.000Z",
+        "user": {
+          "last_played_at": null,
+          "play_count": 0,
+          "played": false,
+          "played_percentage": null,
+          "position": 0.0
+        },
+        "versions": 1,
+        "year": null
+      },
+      {
+        "added_at": "2026-11-08T20:51:06.000Z",
+        "community_rating": null,
+        "critic_rating": null,
+        "end_date": null,
+        "episode_end": null,
+        "episode_no": 2,
+        "genres": [],
+        "id": "01exampleid000000000000006",
+        "identify": {
+          "confidence": 0.0,
+          "note": null,
+          "source": "parse",
+          "state": "review"
+        },
+        "images": {
+          "backdrop": [],
+          "logo": null,
+          "poster": null,
+          "thumb": "630c9254f1600d1ea3966ee2"
+        },
+        "kind": "episode",
+        "library_id": "media",
+        "media": {
+          "audio": [
+            {
+              "channels": 1,
+              "codec": "aac",
+              "default": false,
+              "language": "eng",
+              "profile": "LC",
+              "title": "English - AAC - Mono"
+            }
+          ],
+          "subtitles": [
+            {
+              "codec": "subrip",
+              "forced": false,
+              "language": "eng",
+              "text": true
+            }
+          ],
+          "video": {
+            "codec": "h264",
+            "height": 360,
+            "range": "SDR",
+            "title": "360p H264 SDR",
+            "width": 640
+          }
+        },
+        "official_rating": null,
+        "original_title": null,
+        "overview": null,
+        "parent_images": {
+          "backdrop": [],
+          "logo": null,
+          "poster": null,
+          "thumb": null
+        },
+        "premiere_date": null,
+        "provider_ids": {},
+        "runtime": 150.021,
+        "season_id": "01exampleid000000000000003",
+        "season_no": 1,
+        "season_title": "Season 1",
+        "series_id": "01exampleid000000000000001",
+        "series_title": "Demo Series",
+        "sort_title": "Episode 2",
+        "status": null,
+        "studios": [],
+        "tagline": null,
+        "title": "Episode 2",
+        "tmdb_runtime": 150.021,
+        "updated_at": "2026-11-08T23:51:06.000Z",
+        "user": {
+          "last_played_at": null,
+          "play_count": 0,
+          "played": false,
+          "played_percentage": null,
+          "position": 0.0
+        },
+        "versions": 1,
+        "year": null
+      }
+    ],
+    "total": 2
+  }
+}

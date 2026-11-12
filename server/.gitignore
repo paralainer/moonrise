@@ -1,0 +1,4 @@
+/target
+/deploy/local/
+# The data folder of docker-compose.yml, when the server runs from this folder.
+/moonrise-data/

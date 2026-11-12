@@ -1,0 +1,9 @@
+# scripts/api-lint.sh: `redocly lint` of openapi.yaml, with the recommended rules and its examples
+# (examples/*.json) checked against their schemas, extra fields included.
+extends:
+  - recommended
+rules:
+  no-invalid-media-type-examples:
+    severity: error
+    allowAdditionalProperties: false
+  operation-4xx-response: off

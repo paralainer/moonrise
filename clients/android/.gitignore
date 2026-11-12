@@ -1,0 +1,11 @@
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
+.kotlin/
+captures/
+# Release signing (see README): never in the repository.
+signing.properties
+*.jks
+*.keystore

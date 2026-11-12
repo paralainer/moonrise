@@ -1,0 +1,15 @@
+{
+  "summary": "A progress report",
+  "value": {
+    "item": "01exampleid000000000000002",
+    "outcome": "played",
+    "recorded": true,
+    "user": {
+      "last_played_at": "2026-11-08T23:51:46.000Z",
+      "play_count": 1,
+      "played": true,
+      "played_percentage": null,
+      "position": 0.0
+    }
+  }
+}

@@ -1,0 +1,15 @@
+# gitleaks configuration for scripts/export-public.sh: the default rules, plus one narrow exception.
+# gitleaks reads this file from the root of the scanned copy.
+[extend]
+useDefault = true
+
+# The server's golden test output (server/testdata/golden/) records file_key values: 16-hex-char
+# FNV hashes of synthetic test inputs, not secrets, which generic-api-key would flag. Only that rule,
+# only that directory, only file_key lines.
+[[rules]]
+id = "generic-api-key"
+[rules.allowlist]
+paths = ['''^server/testdata/golden/''']
+regexTarget = "line"
+regexes = ['''^\s*file_key: "[0-9a-f]{16}",?$''']
+condition = "AND"

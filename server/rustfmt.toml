@@ -1,0 +1,3 @@
+# rustfmt settings for the server (make check runs cargo fmt --check). Defaults, except
+# for a longer line limit. Stable options only.
+max_width = 140

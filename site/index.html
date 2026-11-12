@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Moonrise</title>
+<meta name="description" content="Moonrise puts the films and shows on your drive on every screen in the house: a small server you run at home, and fast native apps for Apple TV, iPhone, iPad, Mac, Android and Windows. Free and open source.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#000000">
+<meta property="og:title" content="Moonrise">
+<meta property="og:description" content="Your films are on a drive somewhere. Moonrise puts them on every screen.">
+<meta property="og:type" content="website">
+<link rel="icon" type="image/png" sizes="64x64" href="img/favicon-64.png">
+<link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+<link rel="preload" href="fonts/atkinson-hyperlegible-next.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="bar">
+  <a class="name" href="./"><img src="img/icon-192.webp" width="192" height="192" alt="">Moonrise</a>
+  <nav aria-label="Links">
+    <a href="https://github.com/paralainer/moonrise">Source code</a>
+  </nav>
+</header>
+
+<main id="main">
+  <figure class="scope">
+    <video id="film" muted loop playsinline preload="metadata" poster="film/tos-clip-poster.webp" width="854" height="356" aria-label="A scene from Tears of Steel, with English subtitles.">
+      <source src="film/tos-clip.webm" type="video/webm">
+      <source src="film/tos-clip.mp4" type="video/mp4">
+      <track kind="subtitles" srclang="en" label="English" src="film/tos-en.vtt" default>
+    </video>
+    <button class="toggle" type="button" data-for="film" hidden>Pause</button>
+  </figure>
+
+  <section class="caption" aria-labelledby="hero-title">
+    <h1 id="hero-title"><span>Your films are on a drive somewhere.</span> <span>Moonrise puts them on every screen.</span></h1>
+    <p>A small server sits next to your films and shows, and fast native apps play them on Apple TV, iPhone, iPad, Mac, Android TV, Android phones and Windows. At home, on the train, or on the other side of the world.</p>
+    <p class="fine">Free and open source. Pre-release: for now you build the server and the apps yourself.</p>
+    <div class="actions">
+      <a class="button" href="https://github.com/paralainer/moonrise">Get the source code</a>
+      <a href="https://github.com/paralainer/moonrise#quick-start">Read the setup guide</a>
+    </div>
+  </section>
+
+  <section class="fast" aria-labelledby="fast-title">
+    <h2 id="fast-title">Press Resume. It’s already playing.</h2>
+    <figure class="rec">
+      <video id="rec" class="phone" muted loop playsinline preload="none" poster="shots/iphone-speed.webp" width="590" height="1282" aria-label="A screen recording of the iPhone app in real time: Home, then the page of Tears of Steel, then Resume, and the film is playing a moment later; two taps skip ahead ten seconds each.">
+        <source src="shots/iphone-speed.mp4" type="video/mp4">
+      </video>
+      <figcaption>The iPhone app, recorded in real time. <button class="toggle" type="button" data-for="rec" hidden>Pause</button></figcaption>
+    </figure>
+    <div class="copy">
+      <p>Every Moonrise app is written for its own platform: SwiftUI on Apple devices, Jetpack Compose on Android, WinUI on Windows.</p>
+      <p>Home is on screen the moment the app opens, from what it saved last time, and the pictures for the titles you’re most likely to open are fetched before you tap.</p>
+      <p>The server sits on your own network and sends a file as it is whenever the screen can play it, so the film starts at once, and skipping ahead lands at once.</p>
+    </div>
+  </section>
+
+  <section class="dl" aria-labelledby="dl-title">
+    <img class="phone" src="shots/iphone-downloads.webp" width="590" height="1282" loading="lazy" alt="The Downloads screen on iPhone: Elephants Dream at 57 percent with “Tap to play now”, and Big Buck Bunny and Sintel ready to watch.">
+    <div class="copy">
+      <h2 id="dl-title">Downloads you can watch while they download</h2>
+      <p>Pick a film and a quality, and press Play whenever you like. The download plays from the moment its first minutes arrive, and if you skip ahead, it fetches from where you are.</p>
+      <p>When the connection drops or the server goes quiet, the download waits and carries on by itself when it’s back, without starting over. It keeps going in the background, and it’s saved piece by piece, so a half-finished download is never a broken file.</p>
+      <p class="small">On iPhone, iPad, Mac and Android phones and tablets.</p>
+    </div>
+  </section>
+
+  <section class="away" aria-labelledby="away-title">
+    <h2 id="away-title">Your library, anywhere, with nothing opened to the internet</h2>
+    <figure class="setting">
+      <img src="shots/iphone-tailscale.webp" width="804" height="266" loading="lazy" alt="The iPhone app’s setting Connect Through Tailscale, with its note: Moonrise joins your tailnet as its own device, so your home server is reachable away from home without the Tailscale app or a VPN. At home it uses the local network directly.">
+      <figcaption>Settings, Remote Access, on iPhone</figcaption>
+    </figure>
+    <div class="copy">
+      <p>The iPhone, iPad and Mac apps have Tailscale built in. Turn on Connect Through Tailscale and sign in to your tailnet, and that’s the whole setup: no VPN app, and no ports opened on your router.</p>
+      <p>At home the app talks to the server over your own network. Away, it switches to the tailnet by itself.</p>
+      <p class="small">On Apple TV, the Tailscale app does the same job.</p>
+    </div>
+  </section>
+
+  <section class="files" aria-labelledby="files-title">
+    <div class="copy">
+      <h2 id="files-title">Your files stay exactly as they are</h2>
+      <p class="formats">MKV, MP4 and AVI, with H.264, HEVC, HDR, AV1 or DivX inside.</p>
+      <p>Moonrise only ever reads your folders. When a screen can play a file, it gets the file as it is, with every audio track. When it can’t, the server converts just what that screen needs, while you watch: on an NVIDIA, Intel or AMD graphics card, on a Mac’s own video hardware, or on the processor when that’s all there is.</p>
+      <p>Nothing to re-encode ahead of time, and no second copy of your library.</p>
+    </div>
+    <img class="tv" src="shots/tv-home.webp" width="1600" height="900" loading="lazy" alt="Moonrise on Apple TV: Big Buck Bunny on Home, with its year, 720p, 5.1, genres and plot.">
+  </section>
+
+  <section class="setup" aria-labelledby="setup-title">
+    <div class="copy">
+      <h2 id="setup-title">Set up and run from the sofa</h2>
+      <p>Start the server, open the app, and the app does the rest. It finds the server on your network. You type the six-digit code the server shows, make your account and pick a folder, then watch the first scan fill the library in.</p>
+      <p>The folder can be on the server itself or a share on your NAS or a Windows PC: Moonrise reads the share directly, with nothing to mount.</p>
+      <p>Libraries, people and their devices, transcoding hardware and the logs are all managed from the same app. There is no web admin page to learn.</p>
+    </div>
+    <figure class="setting">
+      <img src="shots/iphone-manage.webp" width="804" height="1034" loading="lazy" alt="Manage Server on iPhone: Libraries, Fix Match, Users and Devices, Services, Playback and Hardware, Activity, and About This Server.">
+      <figcaption>Manage Server, on iPhone</figcaption>
+    </figure>
+  </section>
+
+  <section class="screens" aria-labelledby="screens-title">
+    <div class="copy">
+      <h2 id="screens-title">One library on every screen in the house</h2>
+      <p>Everyone signs in as themselves, with their own Continue Watching, and it follows them from the TV to the phone.</p>
+    </div>
+    <img class="tv" src="shots/tv-rows.webp" width="1600" height="900" loading="lazy" alt="Moonrise on Apple TV: Continue Watching with Tears of Steel and Sintel, and a row of recently added films with their posters.">
+    <dl class="plats">
+      <dt>Apple TV, iPhone, iPad and Mac</dt>
+      <dd>The most complete apps: everything on this page, including setup, managing the server, downloads and Tailscale.</dd>
+      <dt>Android phones and tablets</dt>
+      <dd>Setup, downloads and managing the server, like the iPhone and iPad app.</dd>
+      <dt>Android TV</dt>
+      <dd>Home, Library, Search, title pages and the player, and your films in the TV’s own Watch Next row.</dd>
+      <dt>Windows 10 and 11</dt>
+      <dd>Setup, Home, Library, Search, title pages and the player. Downloads and remote access are still to come.</dd>
+      <dt>The server</dt>
+      <dd>Docker on Linux or a NAS, a Mac, or a Raspberry Pi.</dd>
+    </dl>
+  </section>
+
+  <section class="yours" aria-labelledby="yours-title">
+    <img class="icon" src="img/icon-384.webp" width="384" height="384" loading="lazy" alt="The Moonrise icon: a glass film spool with a play symbol.">
+    <div class="copy">
+      <h2 id="yours-title">It stays in your house</h2>
+      <p>Your films, your accounts and what everyone has watched live on your server and nowhere else. There’s no account with us, no analytics, and nothing is sent to the people who make Moonrise. Posters, plots and subtitle search are extras the server fetches for you, and everything plays without them.</p>
+      <p>Moonrise is free software: the server under the AGPL-3.0, the apps under the MPL-2.0. Read it, change it, keep it.</p>
+      <p class="small"><a href="https://github.com/paralainer/moonrise/blob/main/docs/privacy.md">What is sent where</a>, line by line.</p>
+    </div>
+  </section>
+
+  <section class="tonight" aria-labelledby="tonight-title">
+    <div class="copy">
+      <h2 id="tonight-title">It’s early. You can run it tonight.</h2>
+      <p>Nothing is in an app store yet and there’s no published server image, so for now you build both yourself. With Docker, the server is three commands:</p>
+<pre><code>git clone https://github.com/paralainer/moonrise.git
+cd moonrise/server
+docker compose up -d --build</code></pre>
+      <p>Then build the app for your screen, open it, and choose Connect to Your Server.</p>
+      <div class="actions">
+        <a class="button" href="https://github.com/paralainer/moonrise#quick-start">Read the setup guide</a>
+        <a href="https://github.com/paralainer/moonrise/blob/main/docs/building.md">Building the apps</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <p>The films on this page are Blender open movies: <cite>Tears of Steel</cite>, <cite>Sintel</cite>, <cite>Big Buck Bunny</cite> and <cite>Caminandes: Gran Dillama</cite> © Blender Foundation (<a href="https://creativecommons.org/licenses/by/3.0/" rel="license">CC BY 3.0</a>); <cite>Elephants Dream</cite> © Blender Foundation and Netherlands Media Art Institute (<a href="https://creativecommons.org/licenses/by/2.5/" rel="license">CC BY 2.5</a>; poster <a href="https://creativecommons.org/licenses/by/4.0/" rel="license">CC BY 4.0</a>). The clip at the top is a 28-second excerpt of <cite>Tears of Steel</cite>, scaled, with its own English subtitles retimed; the screenshots and the recording show the films inside the apps. <a href="credits.html">Credits and licences</a>.</p>
+  <p>Type: Atkinson Hyperlegible Next (SIL Open Font License). The name Moonrise and its icon are trademarks (<a href="https://github.com/paralainer/moonrise/blob/main/TRADEMARKS.md">TRADEMARKS.md</a>). This page has no cookies and no trackers.</p>
+</footer>
+<script src="motion.js" defer></script>
+</body>
+</html>

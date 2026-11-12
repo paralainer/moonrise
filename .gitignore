@@ -1,0 +1,21 @@
+Moonrise.xcodeproj/
+build*/
+*.log
+.DS_Store
+scripts/local.env
+Vendor/
+.playwright-mcp/
+# Personal, kept out of the repository (Phase 6): signing identity, build machine, credentials hooks,
+# notes about one installation, a library's test samples.
+clients/apple/Config/Signing.local.xcconfig
+# Its place before the Apple project moved to clients/apple/, until it is moved.
+/Config/Signing.local.xcconfig
+scripts/mac.env
+scripts/local/
+# Working art that isn't published; the public brand sources are in assets/brand/.
+/art/
+server/tools/local/
+private/
+# Contributor server (scripts/server-dev.sh, server/compose.dev.yml): its data and test videos.
+/.dev-data/
+/.dev-media/

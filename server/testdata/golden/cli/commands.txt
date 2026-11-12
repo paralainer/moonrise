@@ -1,0 +1,298 @@
+$ --version
+exit Some(0)
+--- stdout
+moonrise-server <version>
+--- stderr
+$ -V
+exit Some(0)
+--- stdout
+moonrise-server <version>
+--- stderr
+$ version
+exit Some(0)
+--- stdout
+moonrise-server <version>
+--- stderr
+$ no-such-command
+exit Some(1)
+--- stdout
+--- stderr
+Error: unknown command no-such-command
+$ scan
+exit Some(1)
+--- stdout
+--- stderr
+Error: no admin token (is the server running?)
+
+Caused by:
+    No such file or directory (os error 2)
+$ user list
+exit Some(0)
+--- stdout
+[]
+--- stderr
+$ user add
+exit Some(1)
+--- stdout
+--- stderr
+Error: give the user name
+$ user add alice --admin
+exit Some(0)
+--- stdout
+{
+  "id": "<id>",
+  "is_admin": true,
+  "name": "alice"
+}
+--- stderr
+$ user add bob
+exit Some(0)
+--- stdout
+{
+  "id": "<id>",
+  "is_admin": false,
+  "name": "bob"
+}
+--- stderr
+$ user passwd bob
+exit Some(0)
+--- stdout
+{
+  "password": "changed",
+  "user": "bob"
+}
+--- stderr
+$ user list
+exit Some(0)
+--- stdout
+[
+  {
+    "created_at": "<time>",
+    "devices": null,
+    "is_admin": true,
+    "name": "alice",
+    "tokens": 0,
+    "user_data_rows": 0
+  },
+  {
+    "created_at": "<time>",
+    "devices": null,
+    "is_admin": false,
+    "name": "bob",
+    "tokens": 0,
+    "user_data_rows": 0
+  }
+]
+--- stderr
+$ user revoke bob
+exit Some(0)
+--- stdout
+{
+  "revoked": 0,
+  "user": "bob"
+}
+--- stderr
+$ user delete bob
+exit Some(1)
+--- stdout
+--- stderr
+Error: this deletes the account with its tokens and watch state: add --yes
+$ user delete bob --yes
+exit Some(0)
+--- stdout
+{
+  "deleted": 1,
+  "user": "bob"
+}
+--- stderr
+$ user frobnicate
+exit Some(1)
+--- stdout
+--- stderr
+Error: user add <name> [--admin] | user passwd <name> | user list | user revoke <name> | user delete <name> --yes | users reset-data [--user <name>] --yes
+$ users reset-data
+exit Some(1)
+--- stdout
+--- stderr
+Error: this forgets watch state, playback sessions, tokens and device codes (users stay): add --yes
+$ users reset-data --user alice --yes
+exit Some(0)
+--- stdout
+{
+  "device_codes": 0,
+  "play_sessions": 0,
+  "tokens": 0,
+  "user_data": 0
+}
+--- stderr
+$ users list
+exit Some(0)
+--- stdout
+[
+  {
+    "created_at": "<time>",
+    "devices": null,
+    "is_admin": true,
+    "name": "alice",
+    "tokens": 0,
+    "user_data_rows": 0
+  }
+]
+--- stderr
+$ llm-test
+exit Some(1)
+--- stdout
+--- stderr
+Error: the LLM isn't configured (no key, or MOONRISE_LLM_ENABLED=off)
+$ llm-replay 3
+exit Some(1)
+--- stdout
+--- stderr
+Error: the LLM isn't configured (no key or model, or MOONRISE_LLM_ENABLED=off)
+$ align-eval
+exit Some(0)
+--- stdout
+{
+  "skipped": "no TMDB"
+}
+--- stderr
+$ align-parts --apply
+exit Some(0)
+--- stdout
+{
+  "skipped": "no TMDB"
+}
+--- stderr
+$ identify-eval
+exit Some(0)
+--- stdout
+{
+  "counts": {},
+  "differences": [],
+  "files": 0,
+  "root": "",
+  "show_folders_found": 0,
+  "shows_now": 0
+}
+--- stderr
+$ identify-eval --typed
+exit Some(0)
+--- stdout
+{
+  "counts": {},
+  "differences": [],
+  "files": 0,
+  "root": "each library's own",
+  "show_folders_found": 0,
+  "shows_now": 0
+}
+--- stderr
+$ migrate-root
+exit Some(1)
+--- stdout
+--- stderr
+Error: migrate-root <from> <to> [--credential <id>] [--apply]
+$ migrate-root /media/a
+exit Some(1)
+--- stdout
+--- stderr
+Error: migrate-root <from> <to> [--credential <id>] [--apply]
+$ migrate-root /media/a smb://nas/share --credential c1
+exit Some(0)
+--- stdout
+{
+  "files": 0,
+  "probes": 0,
+  "scan_dirs": 0,
+  "item_video": 0,
+  "roots": 0,
+  "subs_dirs": 0,
+  "extras_dirs": 0,
+  "applied": false
+}
+--- stderr
+(a dry run: --apply to change it; stop the server first)
+$ merge-libraries
+exit Some(1)
+--- stdout
+--- stderr
+Error: merge-libraries <into> <from> [--name <name>] [--apply]
+$ merge-libraries films shows --name Everything
+exit Some(1)
+--- stdout
+--- stderr
+Error: no libraries in the settings store
+$ subs-test
+exit Some(1)
+--- stdout
+--- stderr
+Error: subs-test <file>
+$ keyframes-test /nonexistent/a.mkv
+exit Some(0)
+--- stdout
+{"err":"read failed: No such file or directory (os error 2)","failure":"Read","file":"/nonexistent/a.mkv","ok":false}
+--- stderr
+$ credits-test
+exit Some(0)
+--- stdout
+--- stderr
+$ smb-credential
+exit Some(1)
+--- stdout
+--- stderr
+Error: smb-credential add --user <name> [--host <host>] [--domain <d>]
+$ smb-credential add
+exit Some(1)
+--- stdout
+--- stderr
+Error: --user <name>
+$ scan
+exit Some(0)
+--- stdout
+{
+  "ok": true
+}
+--- stderr
+$ scan --full
+exit Some(0)
+--- stdout
+{
+  "ok": true
+}
+--- stderr
+$ stats
+exit Some(0)
+--- stdout
+{
+  "ok": true
+}
+--- stderr
+$ stats --recent 12
+exit Some(0)
+--- stdout
+{
+  "ok": true
+}
+--- stderr
+$ smb-credential add --user media --host nas --domain HOME
+exit Some(0)
+--- stdout
+
+--- stderr
+$ smb-credential add --user media
+exit Some(0)
+--- stdout
+
+--- stderr
+$ healthcheck
+exit Some(0)
+--- stdout
+--- stderr
+--- the stand-in server was asked
+POST /v1/admin/scan?full=0 HTTP/1.1 ["x-moonrise-admin: test-admin-token"] 
+POST /v1/admin/scan?full=1 HTTP/1.1 ["x-moonrise-admin: test-admin-token"] 
+GET /v1/admin/stats HTTP/1.1 ["x-moonrise-admin: test-admin-token"] 
+GET /v1/admin/stats?recent=12 HTTP/1.1 ["x-moonrise-admin: test-admin-token"] 
+POST /v1/admin/smb/credentials HTTP/1.1 ["content-type: application/json", "x-moonrise-admin: test-admin-token"] {"domain":"HOME","host":"nas","password":"share-password","username":"media"}
+POST /v1/admin/smb/credentials HTTP/1.1 ["content-type: application/json", "x-moonrise-admin: test-admin-token"] {"password":"share-password","username":"media"}
+GET /health HTTP/1.0 [] 

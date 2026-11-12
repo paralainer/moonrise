@@ -1,0 +1,49 @@
+{
+  "summary": "The subtitle tracks with their timing",
+  "value": {
+    "subtitles": [
+      {
+        "codec": "subrip",
+        "default": false,
+        "external": true,
+        "forced": false,
+        "index": 0,
+        "language": "fr",
+        "name": "French - SUBRIP - External",
+        "source": "sidecar",
+        "stream": null,
+        "text": true,
+        "timing": {
+          "nudge": 0.0,
+          "offset": 0.0,
+          "original": false,
+          "pieces": 1,
+          "scale": 1.0,
+          "state": "none"
+        },
+        "url": "/v1/items/01exampleid000000000000002/subtitles/0.srt"
+      },
+      {
+        "codec": "subrip",
+        "default": false,
+        "external": false,
+        "forced": false,
+        "index": 3,
+        "language": "en",
+        "name": "English - SUBRIP",
+        "source": "embedded",
+        "stream": 2,
+        "text": true,
+        "timing": {
+          "nudge": 0.0,
+          "offset": 0.0,
+          "original": false,
+          "pieces": 1,
+          "scale": 1.0,
+          "state": "none"
+        },
+        "url": "/v1/items/01exampleid000000000000002/subtitles/3.srt"
+      }
+    ]
+  }
+}

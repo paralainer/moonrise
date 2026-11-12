@@ -1,0 +1,10 @@
+# Included by project.yml when Vendor/TailscaleKit.xcframework exists (MOONRISE_TAILSCALE=YES, set by
+# scripts/xcodegen.sh). Without it the app builds without remote access over Tailscale
+# (TailscaleService compiles to "not supported"). Build the framework with
+# scripts/build-tailscalekit.sh.
+targets:
+  Moonrise:
+    dependencies:
+      - framework: Vendor/TailscaleKit.xcframework
+        embed: true
+        destinationFilters: [iOS, macOS]

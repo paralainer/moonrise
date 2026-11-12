@@ -1,0 +1,245 @@
+name: Moonrise
+# Identity and signing come from Config/Signing.xcconfig (+ the git-ignored
+# Config/Signing.local.xcconfig): MOONRISE_BUNDLE_ID, MOONRISE_DEVELOPMENT_TEAM.
+configFiles:
+  Debug: Config/Signing.xcconfig
+  Release: Config/Signing.xcconfig
+# Remote access needs TailscaleKit (scripts/build-tailscalekit.sh → Vendor/). scripts/xcodegen.sh
+# sets MOONRISE_TAILSCALE=YES when it is there; without it the app builds without Tailscale.
+include:
+  - path: project.tailscale.yml
+    enable: ${MOONRISE_TAILSCALE}
+options:
+  bundleIdPrefix: org.example
+  createIntermediateGroups: true
+  deploymentTarget:
+    iOS: "26.0"
+    tvOS: "26.0"
+    macOS: "26.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # The commit the app is built from (Settings shows it next to the version); scripts/build.sh sets it.
+    MOONRISE_BUILD_STAMP: ""
+    DEVELOPMENT_TEAM: $(MOONRISE_DEVELOPMENT_TEAM)
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+
+targets:
+  Moonrise:
+    type: application
+    supportedDestinations: [iOS, tvOS, macOS]
+    sources:
+      - path: Moonrise
+      - path: Shared
+    dependencies:
+      # (+ TailscaleKit from project.tailscale.yml when it has been built)
+      - target: MoonriseWidgets
+        destinationFilters: [iOS]
+      - target: MoonriseTopShelf
+        destinationFilters: [tvOS]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MOONRISE_BUNDLE_ID)
+        PRODUCT_NAME: Moonrise
+        TARGETED_DEVICE_FAMILY: "1,2,3"
+        # AppIcon, or the Dev app's amber ones (scripts/dev-icons.sh) in DEV=1 builds.
+        ASSETCATALOG_COMPILER_APPICON_NAME: $(MOONRISE_APP_ICON)
+        # tvOS uses its own catalog (layered icon + Top Shelf); each platform skips the other's.
+        "ASSETCATALOG_COMPILER_APPICON_NAME[sdk=appletv*]": $(MOONRISE_APP_ICON_TV)
+        "EXCLUDED_SOURCE_FILE_NAMES[sdk=appletv*]": Assets.xcassets
+        "EXCLUDED_SOURCE_FILE_NAMES[sdk=iphone*]": AssetsTV.xcassets
+        "EXCLUDED_SOURCE_FILE_NAMES[sdk=macosx*]": AssetsTV.xcassets
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        # tvOS: system accent. A white one turns button text white on the white focus platter.
+        "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME[sdk=appletv*]": ""
+        "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": Moonrise/Support/Moonrise-macOS.entitlements
+        # tvOS: the keychain access group it shares with the Top Shelf extension (MoonriseTopShelf).
+        # Keychain groups of your team need no registration, so automatic signing covers them. The
+        # app's own group comes first, so its keychain items (the sign-in) stay where they are.
+        "CODE_SIGN_ENTITLEMENTS[sdk=appletv*]": Moonrise/Support/Moonrise-tvOS.entitlements
+        MOONRISE_TOPSHELF_KEYCHAIN: ""
+        "MOONRISE_TOPSHELF_KEYCHAIN[sdk=appletv*]": $(AppIdentifierPrefix)$(MOONRISE_BUNDLE_ID).shared
+        # The shared setting is the iOS one (@executable_path/Frameworks); a Mac app's are in Contents/Frameworks.
+        "LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]": "$(inherited) @executable_path/../Frameworks"
+        ENABLE_HARDENED_RUNTIME: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+    info:
+      path: Moonrise/Support/Info.plist
+      properties:
+        # Moonrise, or Moonrise Dev in the scripts' DEV=1 builds (Config/Signing.xcconfig).
+        CFBundleDisplayName: $(MOONRISE_APP_NAME)
+        CFBundleName: $(MOONRISE_APP_NAME)
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        MoonriseBuildStamp: $(MOONRISE_BUILD_STAMP)
+        # The keychain group with the Top Shelf's snapshot (tvOS only; empty elsewhere).
+        MoonriseKeychainGroup: $(MOONRISE_TOPSHELF_KEYCHAIN)
+        # Deep links: moonrise://open/<item id>, moonrise://play/<item id> (the Top Shelf's cards).
+        # The Dev app's scheme is moonrise-dev, so its links never open the other app.
+        MoonriseURLScheme: $(MOONRISE_URL_SCHEME)
+        CFBundleURLTypes:
+          - CFBundleURLName: $(PRODUCT_BUNDLE_IDENTIFIER)
+            CFBundleURLSchemes: [$(MOONRISE_URL_SCHEME)]
+        LSApplicationCategoryType: public.app-category.entertainment
+        UILaunchScreen: {}
+        UIApplicationSupportsIndirectInputEvents: true
+        UIStatusBarStyle: UIStatusBarStyleLightContent
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIBackgroundModes: [audio, fetch, processing]
+        NSSupportsLiveActivities: true
+        NSSupportsLiveActivitiesFrequentUpdates: true
+        NSLocalNetworkUsageDescription: Moonrise finds and connects to your Moonrise server on the local network.
+        NSBonjourServices: [_moonrise._tcp]
+        BGTaskSchedulerPermittedIdentifiers:
+          - $(PRODUCT_BUNDLE_IDENTIFIER).downloads.*
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+          NSAllowsLocalNetworking: true
+        ITSAppUsesNonExemptEncryption: false
+
+  MoonriseWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: MoonriseWidgets
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MOONRISE_BUNDLE_ID).widgets
+        PRODUCT_NAME: MoonriseWidgets
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SKIP_INSTALL: YES
+    info:
+      path: MoonriseWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: $(MOONRISE_APP_NAME)
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+
+  # Apple TV: Continue Watching and Next Up above the app in the top row. It reads what the app
+  # saved in their shared keychain group (TopShelfSnapshot) and needs no token of its own.
+  MoonriseTopShelf:
+    type: tv-app-extension
+    platform: tvOS
+    sources:
+      - path: MoonriseTopShelf
+      - path: Shared/TopShelfSnapshot.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MOONRISE_BUNDLE_ID).topshelf
+        PRODUCT_NAME: MoonriseTopShelf
+        TARGETED_DEVICE_FAMILY: "3"
+        SKIP_INSTALL: YES
+        CODE_SIGN_ENTITLEMENTS: MoonriseTopShelf/MoonriseTopShelf.entitlements
+        # tv-app-extension's default entry, _TVExtensionMain, exits at once (status 96) on tvOS 26,
+        # before the system can ask for the shelf; the generic extension main works.
+        LD_ENTRY_POINT: _NSExtensionMain
+    info:
+      path: MoonriseTopShelf/Info.plist
+      properties:
+        CFBundleDisplayName: $(MOONRISE_APP_NAME)
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        MoonriseKeychainGroup: $(AppIdentifierPrefix)$(MOONRISE_BUNDLE_ID).shared
+        # The scheme of the app the cards open (moonrise, or moonrise-dev for the Dev app).
+        MoonriseURLScheme: $(MOONRISE_URL_SCHEME)
+        # The cards' artwork comes from the server on the local network (plain HTTP).
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+          NSAllowsLocalNetworking: true
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.tv-top-shelf
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ContentProvider
+
+  # Unit tests of the app's logic (scripts/test-apple.sh runs them on a throwaway simulator).
+  # Hosted in the app (`@testable import Moonrise`); the app sees XCTest and starts nothing
+  # (MoonriseApp.isUnitTesting), so the tests need no server, no network and no sign-in.
+  MoonriseTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: MoonriseTests
+      # The API contract's example answers (APIExamplesTests decodes each), as the folder `examples`.
+      - path: ../../api/examples
+        type: folder
+        buildPhase: resources
+      # The segment rules' shared cases (SegmentRulesCasesTests; the server and Android check them too).
+      - path: ../../api/segment-rules.json
+        buildPhase: resources
+      # The resume rule's shared cases (ResumeRulesCasesTests; Android and Windows check them too).
+      - path: ../../api/resume-rules.json
+        buildPhase: resources
+      # How playback failures are named (PlaybackProblemTests; Android and Windows check them too).
+      - path: ../../api/playback-problem-rules.json
+        buildPhase: resources
+      # A small generated HLS set for the route-change tests (RouteChangeTests).
+      - path: TestMedia/route-change-stream
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - target: Moonrise
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MOONRISE_BUNDLE_ID).tests
+        GENERATE_INFOPLIST_FILE: YES
+        TARGETED_DEVICE_FAMILY: "1,2"
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/Moonrise.app/Moonrise
+        BUNDLE_LOADER: $(TEST_HOST)
+
+  # Apple TV UI tests, for what only the focus engine decides. They run the app's built-in demo
+  # on a tvOS simulator: offline, no sign-in (scripts/test-apple.sh).
+  MoonriseTVUITests:
+    type: bundle.ui-testing
+    platform: tvOS
+    sources:
+      - path: MoonriseTVUITests
+    dependencies:
+      - target: Moonrise
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MOONRISE_BUNDLE_ID).tvuitests
+        GENERATE_INFOPLIST_FILE: YES
+        TARGETED_DEVICE_FAMILY: "3"
+        TEST_TARGET_NAME: Moonrise
+
+schemes:
+  Moonrise:
+    build:
+      targets:
+        Moonrise: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+  MoonriseTests:
+    build:
+      targets:
+        Moonrise: [test]
+        MoonriseTests: [test]
+    test:
+      config: Debug
+      targets:
+        - MoonriseTests
+  MoonriseTVUITests:
+    build:
+      targets:
+        Moonrise: [test]
+        MoonriseTVUITests: [test]
+    test:
+      config: Debug
+      targets:
+        - MoonriseTVUITests

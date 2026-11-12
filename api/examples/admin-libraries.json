@@ -1,0 +1,57 @@
+{
+  "summary": "Two local libraries and one on a network share (offline)",
+  "value": {
+    "items": [
+      {
+        "id": "movies",
+        "kind": "mixed",
+        "name": "Films",
+        "roots": [
+          {
+            "available": true,
+            "path": "/media/Movies",
+            "since": 1794183513,
+            "source": "local",
+            "state": "online"
+          }
+        ]
+      },
+      {
+        "id": "shows",
+        "kind": "mixed",
+        "name": "Shows",
+        "roots": [
+          {
+            "available": true,
+            "path": "/media/Shows",
+            "since": 1794183513,
+            "source": "local",
+            "state": "online"
+          }
+        ]
+      },
+      {
+        "id": "nas-shows",
+        "kind": "mixed",
+        "name": "Shows on the NAS",
+        "roots": [
+          {
+            "available": false,
+            "credential_id": "cred-example-1",
+            "error": "the server can't be reached",
+            "host": "192.168.1.30",
+            "path": "Video/Shows",
+            "share": "Media",
+            "since": 1794183513,
+            "source": "smb",
+            "state": "offline",
+            "url": "smb://192.168.1.30/Media/Video/Shows",
+            "username": "demo"
+          }
+        ]
+      }
+    ],
+    "managed_by": "store",
+    "total": 3
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "summary": "The endpoint doesn't answer",
+  "value": {
+    "error": "llm request failed (timeout)",
+    "ms": 102906,
+    "ok": false,
+    "problem": "unreachable"
+  }
+}

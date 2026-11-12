@@ -1,0 +1,23 @@
+// App identity and signing. Everyone building Moonrise uses their own: put your values in
+// Config/Signing.local.xcconfig (git-ignored; see Config/Signing.local.xcconfig.example), which
+// overrides these. project.yml, the scripts and fastlane read the same keys.
+
+// The app's bundle id; the widget extension (iOS) is $(MOONRISE_BUNDLE_ID).widgets and the Top
+// Shelf extension (Apple TV) $(MOONRISE_BUNDLE_ID).topshelf, which shares the keychain group
+// <team>.$(MOONRISE_BUNDLE_ID).shared with the app. Keychain items, background tasks and the
+// download session are named after it.
+MOONRISE_BUNDLE_ID = org.example.moonrise
+
+// The app's name on the home screen, and the URL scheme of its deep links (moonrise://play/<id>, the
+// Apple TV's Top Shelf cards). The scripts' DEV=1 builds "Moonrise Dev": $(MOONRISE_BUNDLE_ID).dev,
+// scheme moonrise-dev, an app of its own beside this one (its own sign-in, data and Top Shelf).
+MOONRISE_APP_NAME = Moonrise
+MOONRISE_URL_SCHEME = moonrise
+// Its icon sets: the Dev app's are amber (AppIcon-Dev, AppIconTV-Dev; scripts/dev-icons.sh).
+MOONRISE_APP_ICON = AppIcon
+MOONRISE_APP_ICON_TV = App Icon & Top Shelf Image
+
+// Your Apple Developer team id (10 characters). Empty: simulator builds only (or signed by hand).
+MOONRISE_DEVELOPMENT_TEAM =
+
+#include? "Signing.local.xcconfig"

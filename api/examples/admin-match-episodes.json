@@ -1,0 +1,36 @@
+{
+  "summary": "A TMDB season's episodes, and what the library has of them",
+  "value": {
+    "tmdb_id": 99999,
+    "title": "Demo Series",
+    "seasons": [
+      1,
+      2
+    ],
+    "season": 1,
+    "episodes": [
+      {
+        "episode": 1,
+        "season": 1,
+        "title": "Pilot",
+        "air_date": "2020-01-01",
+        "overview": "The first episode.",
+        "in_library": {
+          "titles": 1,
+          "files": 1
+        }
+      },
+      {
+        "episode": 2,
+        "season": 1,
+        "title": "The Second One",
+        "air_date": "2020-01-08",
+        "overview": null,
+        "in_library": {
+          "titles": 0,
+          "files": 0
+        }
+      }
+    ]
+  }
+}

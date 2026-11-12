@@ -1,0 +1,16 @@
+{
+  "description": "When a title offers Resume, and where it resumes, from its `user` as the server answers it: any position above 0, watched before or not (a watched title being watched again keeps `played` and gets a resume point). `expected` is the position to resume at, or null for none. Checked by the Apple apps (ResumeRulesCasesTests), the Android apps (ResumeRulesCasesTest) and the Windows app (SharedCasesTests).",
+  "cases": [
+    { "name": "Stopped part way, never finished", "user": { "position": 1800.5, "played": false }, "expected": 1800.5 },
+    { "name": "No played flag: part way", "user": { "position": 1800.5 }, "expected": 1800.5 },
+    { "name": "Watched before, started again and stopped part way", "user": { "position": 1800.5, "played": true }, "expected": 1800.5 },
+    { "name": "Under a second counts: the rule is above 0", "user": { "position": 0.5, "played": false }, "expected": 0.5 },
+    { "name": "Watched before, under a second", "user": { "position": 0.5, "played": true }, "expected": 0.5 },
+    { "name": "Position 0: not started", "user": { "position": 0, "played": false }, "expected": null },
+    { "name": "Position 0 and watched: finished, the server cleared the resume point", "user": { "position": 0, "played": true }, "expected": null },
+    { "name": "Watched, no position", "user": { "played": true }, "expected": null },
+    { "name": "Not watched, no position", "user": { "played": false }, "expected": null },
+    { "name": "A negative position is none", "user": { "position": -1, "played": false }, "expected": null },
+    { "name": "No user data (not signed in)", "user": null, "expected": null }
+  ]
+}

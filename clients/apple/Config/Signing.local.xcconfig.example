@@ -1,0 +1,3 @@
+// Copy to clients/apple/Config/Signing.local.xcconfig (git-ignored) and fill in your own values.
+MOONRISE_BUNDLE_ID = com.yourname.moonrise
+MOONRISE_DEVELOPMENT_TEAM = ABCDE12345

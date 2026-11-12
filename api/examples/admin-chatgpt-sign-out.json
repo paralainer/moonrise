@@ -1,0 +1,7 @@
+{
+  "summary": "Signed out; OpenAI confirmed it",
+  "value": {
+    "revoked": true,
+    "signed_in": false
+  }
+}

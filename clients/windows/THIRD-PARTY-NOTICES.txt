@@ -1,0 +1,13 @@
+Moonrise for Windows uses these components. Their licences apply to them, not to Moonrise.
+
+libmpv (bundled as libmpv-2.dll): mpv 0.42.0-19-ga61f6c3ab, GNU LGPL 2.1 or later, built with -Dgpl=false.
+  Statically linked into that DLL: FFmpeg (GNU LGPL 3 or later, without GPL parts), libass (ISC),
+  libplacebo (LGPL 2.1 or later), FreeType, HarfBuzz, fribidi, dav1d (BSD), lcms2 (MIT) and others;
+  see each project's licence.
+  Source: https://github.com/mpv-player/mpv, https://git.ffmpeg.org/ffmpeg.git and
+  https://github.com/zhongfly/mpv-winbuild (build tag 2026-11-09-a61f6c3abd). The DLL can be replaced: it is an ordinary file next to
+  Moonrise.exe, and Moonrise uses only libmpv's public client API.
+
+.NET and the Windows App SDK (bundled, self-contained): Microsoft; MIT licence (.NET) and the
+  Windows App SDK licence terms. System.Security.Cryptography.ProtectedData (NuGet, bundled):
+  Microsoft, MIT licence. Fonts come from Windows.

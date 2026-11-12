@@ -1,0 +1,7 @@
+# The Rust toolchain the server is developed and tested with. rustup picks it up in server/, and
+# scripts/rust-dev.sh builds the dev image (server/docker/dev.Dockerfile) from rust:<channel>-bookworm.
+# Bump it deliberately: change the channel here and run scripts/test-all.sh server.
+[toolchain]
+channel = "1.99.1"
+components = ["clippy", "rustfmt"]
+profile = "minimal"

@@ -1,0 +1,17 @@
+smb2 0.42.0 (crates.io, MIT OR Apache-2.0, https://github.com/vdavid/smb2), vendored for one change
+(optional signing):
+
+  ClientConfig::sign_when_optional (default true = upstream behaviour). Moonrise sets it to false
+  unless the setting smb.signing is "always": a session the server doesn't require to be signed
+  isn't signed, as with the Linux kernel's CIFS client. On the NAS this was measured on, signed
+  reads ran at 18 MB/s, unsigned at 88 MB/s (the kernel's mount: 85-98 MB/s).
+
+  Such a session keeps its signing key and still signs its TREE_CONNECT requests (MS-SMB2
+  3.2.4.1.1; Samba 4.23 on SMB 3.1.1 answers an unsigned one with STATUS_ACCESS_DENIED), as the
+  Linux kernel does. Responses aren't verified then (nothing else is signed).
+
+Files touched: src/client/mod.rs (the field, passed to the connection), src/client/connection.rs
+(Connection::set_sign_when_optional / sign_when_optional, install_signing_key_only, TREE_CONNECT
+signed in execute_with_credits_capturing_request_inner, execute_with_credits_inner and the send
+prepare_request), src/client/session.rs (establish()).
+Search for "Moonrise patch". Cargo.lock removed (the server's own lock file applies).
