@@ -1839,7 +1839,6 @@ mod tests {
     /// stream the one-packet `key.mkv` doesn't have (as ffmpeg refuses it), or for the copy when
     /// `copy_fails`.
     fn picture_ffmpeg(dir: &Path, copy_fails: bool) -> String {
-        use std::os::unix::fs::PermissionsExt;
         let refuse_copy = if copy_fails { "exit 1" } else { ":" };
         let script = format!(
             "#!/bin/sh\necho \"$*\" >> '{log}'\nfor a; do out=$a; done\n\
@@ -1851,8 +1850,7 @@ mod tests {
             key = dir.join("key.mkv").display(),
         );
         let p = dir.join("ffmpeg");
-        std::fs::write(&p, script).unwrap();
-        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::testutil::write_executable(&p, &script);
         p.to_string_lossy().to_string()
     }
 

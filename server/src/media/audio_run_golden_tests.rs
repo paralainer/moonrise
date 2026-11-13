@@ -63,7 +63,6 @@ fn adts_frames(count: usize, len: usize) -> Vec<u8> {
 /// input and answers with one frame of `frames.adts` per 1024 samples it was given, and one more
 /// (the encoder's priming).
 pub(super) fn fake_ffmpeg(dir: &Path, pts0: i64) -> String {
-    use std::os::unix::fs::PermissionsExt;
     std::fs::write(dir.join("frames.adts"), adts_frames(1000, 24)).unwrap();
     let showinfo: String = (0..120)
         .map(|i| {
@@ -76,14 +75,12 @@ pub(super) fn fake_ffmpeg(dir: &Path, pts0: i64) -> String {
     std::fs::write(dir.join("showinfo.txt"), showinfo).unwrap();
     let p = dir.join("ffmpeg");
     let d = dir.display();
-    std::fs::write(
+    crate::testutil::write_executable(
         &p,
-        format!(
+        &format!(
             "#!/bin/sh\necho \"$*\" >> '{d}/args.log'\ncase \"$*\" in\n  *pipe:0*) n=$(( $(wc -c) / 8192 + 1 )); head -c $(( n * 24 )) '{d}/frames.adts' ;;\n  *ashowinfo*) cat '{d}/showinfo.txt' >&2; head -c 7680000 /dev/zero ;;\nesac\nexit 0\n"
         ),
-    )
-    .unwrap();
-    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+    );
     p.to_string_lossy().into_owned()
 }
 
