@@ -92,6 +92,8 @@ class PhoneApplication : Application() {
         Session.init(this)
         AppSettings.init(this)
         Network.init(this)
+        // Remote access: the node first, so the route checks Downloads starts can use it.
+        app.moonrise.shared.remote.Tailscale.init(this, "moonrise-android")
         Downloads.init(this)
         Downloads.onWorkChanged = { DownloadService.sync(this) }
     }
@@ -123,6 +125,7 @@ class MainActivity : ComponentActivity() {
  * `--es deletedownload <item id>` deletes it. `--ez noreport true`: watch reports stop here.
  * `--es manage libraries|review|users|services|aimatching|playback|activity|about|log` opens Manage Server there; `fix:<item id>` Fix Match.
  * `--es orient landscape|portrait|auto` asks for the screen's orientation (the tablet layout's rotation, without touching a setting).
+ * Remote access: `--es tsauthkey <key>` and `--ez forcetailnet true` ([app.moonrise.shared.remote.RemoteSeams]).
  */
 object DebugSeams {
     var open by mutableStateOf<Pair<String, Autoplay?>?>(null)
@@ -132,6 +135,7 @@ object DebugSeams {
 
     fun take(activity: ComponentActivity, intent: Intent?) {
         if (activity.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0 || intent == null) return
+        app.moonrise.shared.remote.RemoteSeams.take(intent)
         if (intent.getBooleanExtra("awake", false)) {
             activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             intent.removeExtra("awake")

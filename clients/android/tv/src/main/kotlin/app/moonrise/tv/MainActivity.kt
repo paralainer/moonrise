@@ -70,7 +70,8 @@ class MainActivity : ComponentActivity() {
  * page alone (for scripted checks without walking the screens with the remote); `--ez novideo
  * true` leaves the picture out, so screenshots show the controls. Add
  * `--activity-single-top` while the app runs. `--ez watchnext true` logs the home screen's Watch Next
- * rows as the TV provider holds them (`MoonriseWatchNext`).
+ * rows as the TV provider holds them (`MoonriseWatchNext`). Remote access: `--es tsauthkey <key>`
+ * and `--ez forcetailnet true` ([app.moonrise.shared.remote.RemoteSeams]).
  */
 object DebugSeams {
     var play by androidx.compose.runtime.mutableStateOf<Pair<String, Double?>?>(null)
@@ -88,6 +89,7 @@ object DebugSeams {
     fun take(activity: ComponentActivity, intent: android.content.Intent?) {
         val debuggable = activity.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
         if (!debuggable) return
+        app.moonrise.shared.remote.RemoteSeams.take(intent)
         if (intent?.hasExtra("refuseoriginal") == true) {
             PlayerSeams.refuseOriginalVideo = intent.getBooleanExtra("refuseoriginal", false)
             Log.i("Moonrise") { "test seam: refuse the Original quality's video: ${PlayerSeams.refuseOriginalVideo}" }

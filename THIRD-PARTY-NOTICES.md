@@ -41,6 +41,11 @@ At the versions in `clients/android/gradle/libs.versions.toml`:
 - **media3-ffmpeg-decoder** (`org.jellyfin.media3`), software audio decoders built from FFmpeg:
   GPL-3.0. A built Android app as a whole is therefore distributed under the GPL-3.0; its source
   stays MPL-2.0 (see the README's License).
+- **Tailscale** (`tailscale.com`, the version in `clients/android/tailscale/go.mod`), only when you
+  build it (`scripts/build-tailscale-android.sh`), with the Go modules it pulls in (WireGuard-go,
+  gVisor and others, BSD-3-Clause, MIT, Apache-2.0; see `go.mod` and each module's licence):
+  BSD-3-Clause. Bound with gomobile (`golang.org/x/mobile`, BSD-3-Clause), and the Go runtime
+  (BSD-3-Clause).
 - JUnit (tests only, not in the apps): EPL-1.0.
 
 ## Windows app (`clients/windows/`)

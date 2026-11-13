@@ -29,7 +29,11 @@ class MoonriseHttpException(val code: Int, val body: String) :
  * token: the session id is the capability.
  */
 class MoonriseApi(
-    val baseUrl: HttpUrl,
+    /**
+     * Where requests go now. The signed-in server's client follows the route to the server
+     * (`ServerReach`): its home address, or a local forwarder to it on the tailnet.
+     */
+    @Volatile var baseUrl: HttpUrl,
     @Volatile var token: String? = null,
     private val deviceId: String,
     private val deviceName: String,
@@ -66,6 +70,24 @@ class MoonriseApi(
 
     private val jsonType = "application/json".toMediaType()
 
+    /**
+     * Waits before each request until the route to the server is known (set on the signed-in
+     * server's client: the first check of a launch), so screens don't load against an address
+     * that doesn't answer away from home. Nothing by default.
+     */
+    @Volatile var awaitRoute: (suspend () -> Unit)? = null
+
+    /**
+     * [url] (one of this server's, made with [url]) after waiting for the route, moved to the
+     * address in use now: a request made just before the route changed goes the new way.
+     */
+    private suspend fun routed(url: HttpUrl): HttpUrl {
+        val wait = awaitRoute ?: return url
+        wait()
+        val b = baseUrl
+        return if (url.host == b.host && url.port == b.port) url else url.newBuilder().scheme(b.scheme).host(b.host).port(b.port).build()
+    }
+
     fun url(path: String, query: Map<String, String?> = emptyMap()): HttpUrl {
         val b = baseUrl.newBuilder().encodedPath("/" + path.trimStart('/'))
         query.toSortedMap().forEach { (k, v) -> if (v != null) b.addQueryParameter(k, v) }
@@ -74,7 +96,7 @@ class MoonriseApi(
 
     internal suspend fun send(method: String, url: HttpUrl, body: JsonObject? = null, authorized: Boolean = true, timeoutSeconds: Long? = null): String =
         withContext(Dispatchers.IO) {
-            val rb = Request.Builder().url(url).header("Accept", "application/json")
+            val rb = Request.Builder().url(routed(url)).header("Accept", "application/json")
             if (authorized) token?.let { rb.header("Authorization", "Bearer $it") }
             val payload = body?.toString()?.toRequestBody(jsonType)
             rb.method(method, payload ?: if (method == "POST" || method == "PUT") ByteArray(0).toRequestBody(null) else null)

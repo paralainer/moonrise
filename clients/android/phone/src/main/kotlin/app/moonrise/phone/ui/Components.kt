@@ -285,11 +285,32 @@ fun EmptyState(icon: ImageVector, title: String, message: String, modifier: Modi
 fun ErrorPane(message: String, onRetry: () -> Unit, modifier: Modifier = Modifier, signIn: (() -> Unit)? = null) {
     Column(modifier.fillMaxWidth().padding(horizontal = 30.dp, vertical = 40.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Icon(Icons.Outlined.Warning, null, tint = Theme.secondaryText, modifier = Modifier.size(40.dp))
-        Text(message, style = Type.subheadline, color = Theme.secondaryText, textAlign = TextAlign.Center)
+        // While the server can't be reached, the words follow why (Tailscale turned on, signed in…).
+        val shown = app.moonrise.shared.downloads.ServerReach.problem?.let { app.moonrise.shared.connectionProblemText() } ?: message
+        Text(shown, style = Type.subheadline, color = Theme.secondaryText, textAlign = TextAlign.Center)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             GlassCapsule(onClick = onRetry) { Text("Retry", style = Type.headline, color = Color.White) }
             if (signIn != null) GlassCapsule(onClick = signIn) { Text("Sign In Again", style = Type.headline, color = Color.White) }
         }
+        TailscaleAction()
+    }
+}
+
+/**
+ * Away from home, what Tailscale needs when that is why the server can't be reached
+ * (`ConnectionProblemView`): turning it on, the sign-in in the browser, or a restart.
+ */
+@Composable
+fun TailscaleAction() {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    when (val p = app.moonrise.shared.downloads.ServerReach.problem) {
+        app.moonrise.core.ConnectionProblem.TailscaleOff ->
+            WhiteCapsule("Connect with Tailscale") { app.moonrise.shared.remote.Tailscale.enabled = true }
+        is app.moonrise.core.ConnectionProblem.TailscaleNeedsLogin ->
+            p.url?.let { url -> WhiteCapsule("Sign In to Tailscale") { openUrl(context, url) } }
+        is app.moonrise.core.ConnectionProblem.TailscaleFailed ->
+            WhiteCapsule("Restart Tailscale") { app.moonrise.shared.remote.Tailscale.restart() }
+        else -> {}
     }
 }
 

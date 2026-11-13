@@ -199,6 +199,14 @@ Past bugs and the tests that guard them. Add a row with every fix, saying what b
 | Deleting a download while its artwork was being fetched ended the app (the write threw in a job with nothing to catch it); a full disk would too | `DownloadDeleteTest.artworkArrivingAfterTheDeleteEndsQuietly`, `artworkTheServerDoesNotHaveWritesNothing`, `artworkOfADownloadStillThereIsKept` (`DownloadRules.saveArtwork`), `artworkIsOnlyWrittenThroughTheRule` (scans `Downloads.kt`). On a device: not run |
 | Enter in the Server field opened Sign In with a Code; it now checks the address | Not automatable: Compose focus and the keyboard's action, on a device |
 | Fix Match's candidate rows showed only a placeholder (TMDB's host isn't the server); posters now come from the server, and nothing else is loaded | `AdminRulesTest.aMatchPosterIsOnlyEverLoadedFromTheServer`, `aCandidateWithOnlyATmdbAddressHasNoPoster`; `scripts/tests/no-third-party-art.test.sh` |
+| Remote access (phone and TV) through the embedded Tailscale node. The route: home address first, then the tailnet (the host found before, peers named like the server, a sweep only when the server's id can tell it apart; tagged peers never), accepted only for the same server; offline nothing is probed; a starting node is waited for | `RoutingTest` (`planRoute`, `tailnetCandidates`, `problem`). Joining a real tailnet and reaching the server through it: on a device |
+| Requests made before the first route check of a launch went to the home address away from home; they now wait for it and go the way it found | `RoutingTest.aRequestWaitsForTheRouteAndGoesTheWayItFound` |
+| Connect Through Tailscale on and off, and a stopped node's late state can't bring the setting's state back | `TailscaleSwitchTest` |
+| A stream moves to the route it can use (the Apple apps' route-change rules) | `RoutingTest` (`StreamRouteRules` cases). The move itself: on a device |
+| The local forwarder to the tailnet: a dial that never comes back closes the player's connection after 8 s, past 32 waiting dials a connection is closed at once, a half-dead bridge is closed after the drain wait | `clients/android/tailscale/forward_test.go` (`scripts/build-tailscale-android.sh test`, and before every build of the library) |
+| A route check asked for while one ran was dropped (a network change, the app coming to the front), so the route stayed wrong for up to 30 s | `RoutingTest.aNudgeDuringACheckIsKeptForAfterIt` |
+| With the server's name not yet known the can't-reach text read "Can't Reach Your server. Moonrise reaches Your server…" | `RoutingTest.theProblemSaysWhatToDo` |
+| The apps build without the Tailscale library | `clients/android/build.sh test` compiles `shared` with `-Pmoonrise.tailscale=false` |
 
 ### Scripts
 

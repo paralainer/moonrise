@@ -205,13 +205,34 @@ object Network {
         cm.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 Log.i("Moonrise") { "network available" }
-                Session.main.post { online = true; cellular = readCellular(cm); generation++; app.moonrise.shared.downloads.ServerReach.nudge() }
+                Session.main.post { online = true; cellular = readCellular(cm); generation++; changed(cm) }
             }
 
             override fun onLost(network: Network) {
                 Log.i("Moonrise") { "network lost" }
-                Session.main.post { online = false; cellular = false; app.moonrise.shared.downloads.ServerReach.nudge() }
+                Session.main.post { online = false; cellular = false; changed(cm) }
+            }
+
+            // Another address or router on the same network (a roam, DHCP): the Tailscale node's
+            // sockets may need to move.
+            override fun onLinkPropertiesChanged(network: Network, lp: android.net.LinkProperties) {
+                Session.main.post { app.moonrise.shared.remote.Tailscale.networkChanged(path(cm)) }
             }
         })
+    }
+
+    private fun changed(cm: ConnectivityManager) {
+        app.moonrise.shared.downloads.ServerReach.nudge()
+        app.moonrise.shared.remote.Tailscale.networkChanged(path(cm))
+    }
+
+    /** The default network as the Tailscale node's sockets see it. */
+    private fun path(cm: ConnectivityManager): app.moonrise.core.NetPath {
+        val lp = runCatching { cm.getLinkProperties(cm.activeNetwork) }.getOrNull()
+        return app.moonrise.core.NetPath(
+            online = online,
+            interfaces = listOfNotNull(lp?.interfaceName),
+            gateways = lp?.routes.orEmpty().mapNotNull { r -> r.gateway?.hostAddress?.takeIf { r.hasGateway() } },
+        )
     }
 }

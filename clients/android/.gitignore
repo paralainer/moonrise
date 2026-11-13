@@ -9,3 +9,5 @@ captures/
 signing.properties
 *.jks
 *.keystore
+# The Tailscale library (scripts/build-tailscale-android.sh): built, never committed.
+vendor/

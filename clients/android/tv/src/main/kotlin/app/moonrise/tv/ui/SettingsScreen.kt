@@ -47,6 +47,10 @@ import app.moonrise.tv.R
 import app.moonrise.shared.Session
 import app.moonrise.shared.AppSettings
 import app.moonrise.shared.Network
+import app.moonrise.shared.downloads.ServerReach
+import app.moonrise.shared.remote.Tailscale
+import app.moonrise.core.Route
+import app.moonrise.core.TailscaleState
 
 /**
  * Settings, laid out as on Apple TV: the app's mark, version and connection on the left; on the
@@ -62,8 +66,6 @@ fun SettingsScreen(
     val api = Session.api
     var serverName by remember { mutableStateOf<String?>(null) }
     var userName by remember { mutableStateOf<String?>(null) }
-    /** null: checking; true: answered; false: can't be reached. */
-    var reachable by remember { mutableStateOf<Boolean?>(null) }
     var picker by remember { mutableStateOf<Picker?>(null) }
     var confirm by remember { mutableStateOf<String?>(null) }
     val list = rememberLazyListState()
@@ -73,15 +75,18 @@ fun SettingsScreen(
         entry?.focusSoon(20) ?: false
     }
     LaunchedEffect(list) { snapshotFlow { list.firstVisibleItemIndex == 0 && list.firstVisibleItemScrollOffset < 40 }.collect(atTop) }
-    LaunchedEffect(Network.generation) {
+    // The route check says how the server is reached (home, the tailnet, or not at all).
+    val route = ServerReach.route
+    val reachable: Boolean? = when { route == null || route == Route.Checking -> null; else -> route.usable }
+    LaunchedEffect(Network.generation, reachable) {
         val a = api ?: return@LaunchedEffect
-        reachable = null
-        reachable = runCatching { serverName = a.info().name; true }.getOrDefault(false)
-        if (reachable == true) runCatching { userName = a.me().name }
+        if (reachable != true) return@LaunchedEffect
+        runCatching { serverName = a.info().name }
+        runCatching { userName = a.me().name }
     }
     val version = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "" }
-    val address = api?.baseUrl?.let { "${it.host}:${it.port}" } ?: "—"
-    val connection = when (reachable) { null -> "Checking…"; true -> "Local network"; false -> "Unreachable" }
+    val address = Session.homeAddress?.let { "${it.host}:${it.port}" } ?: "—"
+    val connection = route?.label ?: "Checking…"
     val name = serverName ?: "Moonrise Server"
 
     Row(Modifier.fillMaxSize().padding(top = TAB_BAR_SPACE)) {
@@ -123,6 +128,8 @@ fun SettingsScreen(
             item { InfoRow("Connection", connection) }
             item { ActionRow("Change Server", modifier = entry?.let { Modifier.focusRequester(it) } ?: Modifier) { confirm = "change" } }
             item { ActionRow("Sign Out", destructive = true) { confirm = "signout" } }
+
+            if (Tailscale.isSupported) remoteAccess()
 
             item { Header("Playback") }
             item { ValueRow("Streaming Quality", AppSettings.streamingQuality) { picker = Picker.Quality } }
@@ -180,6 +187,36 @@ fun SettingsScreen(
         "signout" -> ConfirmDialog("Sign out of $name?", "This device stops using $name until you sign in again.", "Sign Out",
             onConfirm = signOut, onDismiss = { confirm = null })
     }
+}
+
+/**
+ * Remote Access: Connect Through Tailscale; the sign-in as a QR code and its address (a
+ * TV has no browser to sign in with), the node's state and Sign Out of Tailscale.
+ */
+private fun androidx.compose.foundation.lazy.LazyListScope.remoteAccess() {
+    item { Header("Remote Access") }
+    item { ToggleRow("Connect Through Tailscale", Tailscale.enabled) { Tailscale.enabled = !Tailscale.enabled } }
+    item(key = "tailscale-state") {
+        if (!Tailscale.enabled) return@item
+        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            when (val st = Tailscale.state) {
+                TailscaleState.Off, TailscaleState.Starting -> InfoRow("Status", "Starting…")
+                is TailscaleState.NeedsLogin -> {
+                    val url = st.url
+                    if (url == null) InfoRow("Status", "Preparing sign-in…") else TailscaleSignIn(url, Modifier.padding(vertical = 6.dp))
+                }
+                is TailscaleState.Running -> {
+                    InfoRow("Status", "Connected · ${st.ip}")
+                    ActionRow("Sign Out of Tailscale", destructive = true) { Tailscale.signOut() }
+                }
+                is TailscaleState.Failed -> {
+                    InfoRow("Status", st.message)
+                    ActionRow("Retry") { Tailscale.restart() }
+                }
+            }
+        }
+    }
+    item { Footer("Moonrise joins your tailnet as its own device, so your home server is reachable away from home without the Tailscale app or a VPN. At home it uses the local network directly.") }
 }
 
 private sealed interface Picker {

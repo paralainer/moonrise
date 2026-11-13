@@ -17,6 +17,11 @@
 #                                                      # (default: clients/android/adb.sh's, 5038)
 #   NO_BUILD=1 ...                                     # install the APK built last
 #   NO_LAUNCH=1 ...                                    # don't open the app afterwards
+#   APP=phone ANDROID_SERIAL=<serial> ...              # the phone app (app.moonrise.phone[.dev]) on a
+#                                                      # phone or tablet, the same way
+#
+# Release builds come as one APK per CPU type: the one for the device's ABI list
+# (`getprop ro.product.cpu.abilist`) is installed, else the universal one (scripts/android-apk.sh).
 #
 # Over the network, the TV needs developer options and network debugging on, and allows this
 # computer once (it asks on screen at the first connection). Everything runs in Docker
@@ -51,14 +56,24 @@ fi
 state="$("$ADB" -s "$TV" get-state 2>&1 || true)"
 [ "$state" = device ] || { echo "error: $TV is '$state', not ready (adb server on port $ADB_PORT; plugged in, allowed on the TV's screen?)" >&2; exit 1; }
 
+APP="${APP:-tv}"
+case "$APP" in
+    tv) BUILD_DEBUG=(); BUILD_RELEASE=(release) ;;
+    phone) BUILD_DEBUG=(phone); BUILD_RELEASE=(phone-release) ;;
+    *) echo "error: APP is tv or phone, not '$APP'" >&2; exit 2 ;;
+esac
 if [ "${DEV:-}" = 1 ]; then
-    PACKAGE="app.moonrise.tv.dev"; NAME="Moonrise Dev"
-    APK="$ANDROID/tv/build/outputs/apk/debug/tv-debug.apk"
-    [ "${NO_BUILD:-}" = 1 ] || "$ANDROID/build.sh"
+    PACKAGE="app.moonrise.$APP.dev"; NAME="Moonrise Dev"
+    APK="$ANDROID/$APP/build/outputs/apk/debug/$APP-debug.apk"
+    [ "${NO_BUILD:-}" = 1 ] || "$ANDROID/build.sh" "${BUILD_DEBUG[@]}"
 else
-    PACKAGE="app.moonrise.tv"; NAME="Moonrise"
-    APK="$ANDROID/tv/build/outputs/apk/release/tv-release.apk"
-    [ "${NO_BUILD:-}" = 1 ] || "$ANDROID/build.sh" release
+    PACKAGE="app.moonrise.$APP"; NAME="Moonrise"
+    [ "${NO_BUILD:-}" = 1 ] || "$ANDROID/build.sh" "${BUILD_RELEASE[@]}"
+    . "$DIR/scripts/android-apk.sh"
+    abis="$("$ADB" -s "$TV" shell getprop ro.product.cpu.abilist 2>/dev/null | tr -d '\r' || true)"
+    APK="$(apk_for_abis "$ANDROID/$APP/build/outputs/apk/release" "$APP" "$abis" || true)"
+    [ -n "$APK" ] || { echo "error: no release APK for $TV (ABIs: ${abis:-unknown}) in $ANDROID/$APP/build/outputs/apk/release" >&2; exit 1; }
+    echo "==> $TV runs ${abis:-unknown ABIs}: $(basename "$APK")"
 fi
 [ -f "$APK" ] || { echo "error: no APK at $APK" >&2; exit 1; }
 
@@ -86,6 +101,6 @@ echo "==> installed ($PACKAGE updated $after)"
 
 if [ "${NO_LAUNCH:-}" != 1 ]; then
     # Both apps' activity keeps the release app's class name (the package differs).
-    "$ADB" -s "$TV" shell am start -n "$PACKAGE/app.moonrise.tv.MainActivity" >/dev/null
+    "$ADB" -s "$TV" shell am start -n "$PACKAGE/app.moonrise.$APP.MainActivity" >/dev/null
     echo "==> opened $NAME on $TV"
 fi

@@ -33,7 +33,7 @@ itself, and artwork comes from your server too.
 |---|---|---|
 | Your Moonrise server | always | your sign-in, browsing, playback and watch progress (progress watched offline is kept on the device and sent when the server is back); on Apple and Android, *Settings → Use Online Databases* off asks it to leave TheIntroDB's and IntroDB's markers out |
 | OpenAI's sign-in page (`auth.openai.com`) | iPhone, iPad and Mac only: when an admin signs in with ChatGPT in Manage Server | an ordinary browser sign-in, opened at the address your server gives; its answer comes back to the device itself (`127.0.0.1`) and goes on to your server, which makes the token exchange |
-| Tailscale | Apple apps only, and only if you turn on *Connect Through Tailscale* | Tailscale's coordination service, as with any Tailscale device |
+| Tailscale | Apple and Android apps, and only if you turn on *Connect Through Tailscale* | Tailscale's coordination service and relays, as with any Tailscale device (the Android apps send it no logs) |
 | The demo's hosts (`archive.org`, `download.blender.org`, `test-streams.mux.dev`) | Apple apps only, and only in *Try the Demo* | ordinary video requests for the demo films |
 
 Device names ("iPhone", "Apple TV") are sent to your server for its device list. Nothing is sent

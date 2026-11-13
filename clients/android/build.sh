@@ -3,9 +3,12 @@
 #
 #   clients/android/build.sh                 # debug APK: tv/build/outputs/apk/debug/tv-debug.apk
 #   clients/android/build.sh phone           # the phone app's debug APK: phone/build/outputs/apk/debug/phone-debug.apk
-#   clients/android/build.sh test            # the API client's unit tests (:core:test)
-#   clients/android/build.sh release         # signed release APK: tv/build/outputs/apk/release/tv-release.apk
+#   clients/android/build.sh test            # the API client's unit tests (:core:test), and the shared
+#                                            # module built without the Tailscale library
+#   clients/android/build.sh release         # signed release APKs, one per CPU type and a universal one:
+#                                            # tv/build/outputs/apk/release/tv-<abi>-release.apk
 #                                            # (signing: MOONRISE_ANDROID_SIGNING=<signing.properties>, see README)
+#   clients/android/build.sh phone-release   # the same for the phone app (phone/.../phone-<abi>-release.apk)
 #   clients/android/build.sh <gradle args>   # anything else, e.g. ":tv:assembleRelease"
 #   clients/android/build.sh --shell         # a shell in the build container
 #
@@ -71,14 +74,20 @@ case "${1:-}" in
         echo "==> $HERE/tv/build/outputs/apk/debug/tv-debug.apk" ;;
     phone) run ./gradlew --no-daemon :phone:assembleDebug
         echo "==> $HERE/phone/build/outputs/apk/debug/phone-debug.apk" ;;
-    test) run ./gradlew --no-daemon :core:test ;;
-    release)
-        run ./gradlew --no-daemon :tv:assembleRelease
-        apk="$HERE/tv/build/outputs/apk/release/tv-release.apk"
-        # Not signed (no signing set up): Gradle names it tv-release-unsigned.apk.
-        [ -f "$apk" ] || { echo "==> no signed APK: set MOONRISE_ANDROID_SIGNING (see clients/android/README.md)" >&2; exit 1; }
-        run /opt/android-sdk/build-tools/35.0.0/apksigner verify --print-certs "tv/build/outputs/apk/release/tv-release.apk" | grep -E "Signer #1 certificate (DN|SHA-256)"
-        echo "==> $apk" ;;
+    # The apps build without the Tailscale library too (src/notailscale): checked whether or not
+    # vendor/moonrise-tailscale.aar is here.
+    test) run ./gradlew --no-daemon :core:test
+        run ./gradlew --no-daemon -Pmoonrise.tailscale=false :shared:compileDebugKotlin ;;
+    release|phone-release)
+        app=tv; [ "$1" = phone-release ] && app=phone
+        rm -f "$HERE/$app/build/outputs/apk/release/"*.apk
+        run ./gradlew --no-daemon ":$app:assembleRelease"
+        dir="$app/build/outputs/apk/release"
+        # One APK per CPU type plus a universal one (the ABI splits); not signed (no signing set
+        # up), Gradle names them *-unsigned.apk.
+        ls "$HERE/$dir/$app-universal-release.apk" >/dev/null 2>&1 || { echo "==> no signed APK: set MOONRISE_ANDROID_SIGNING (see clients/android/README.md)" >&2; exit 1; }
+        run /opt/android-sdk/build-tools/35.0.0/apksigner verify --print-certs "$dir/$app-universal-release.apk" | grep -E "Signer #1 certificate (DN|SHA-256)"
+        for apk in "$HERE/$dir/"*-release.apk; do echo "==> $apk"; done ;;
     --shell) run bash ;;
     *) run ./gradlew --no-daemon "$@" ;;
 esac

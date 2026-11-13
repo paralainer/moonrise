@@ -10,6 +10,9 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // The Tailscale library, when built (vendor/moonrise-tailscale.aar, see shared/build.gradle.kts):
+        // a module from a folder, as a local .aar file can't be a library module's dependency.
+        flatDir { dirs("vendor") }
     }
 }
 

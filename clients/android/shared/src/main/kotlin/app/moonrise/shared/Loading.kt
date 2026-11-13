@@ -14,11 +14,23 @@ import kotlinx.coroutines.delay
 
 // Loading what screens show, and what they say when it fails: the same in every app.
 
-/** What went wrong, in the app's words: the server's sign-in refused, or not reachable. */
+/**
+ * What went wrong, in the app's words: the server's sign-in refused, or not reachable (and then
+ * why, when the route check knows: offline, Tailscale off or signed out, the server down).
+ */
 fun errorText(e: Throwable): String = when {
     e is MoonriseHttpException && e.code == 401 -> "The Moonrise server doesn't accept this sign-in any more. Sign in again."
     e is MoonriseHttpException -> e.message ?: "The Moonrise server returned ${e.code}."
-    else -> "Can't reach the server. Check that it's running and on this network."
+    else -> connectionProblemText() ?: "Can't reach the server. Check that it's running and on this network."
+}
+
+/** The route check's reason the server can't be reached, as a sentence or two (null: no reason known). */
+fun connectionProblemText(tv: Boolean = false): String? {
+    val p = app.moonrise.shared.downloads.ServerReach.problem ?: return null
+    val name = app.moonrise.shared.downloads.ServerReach.serverName
+    val title = app.moonrise.core.RouteRules.title(p, name)
+    return (if (title.endsWith("…")) "$title " else "$title. ") +
+        app.moonrise.core.RouteRules.message(p, name, Network.cellular, app.moonrise.shared.remote.Tailscale.isSupported, tv)
 }
 
 /**
