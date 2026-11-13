@@ -41,9 +41,9 @@ everything the App Store Connect API allows, on the build Mac, with fastlane
 
 **Once, on the build Mac** (`scripts/mac.env` names the files; nothing secret is in the repository):
 
-- `RELEASE_MAC=user@host` in `scripts/mac.env` names that Mac. `release-apple.sh` and
-  `store-shots.sh` use only it, never `MAC` or `FASTLANE_MAC`, which may point at someone's own
-  Mac; list such Macs in `PERSONAL_MACS` and the scripts refuse them.
+- `RELEASE_MAC=user@host` in `scripts/mac.env` names that Mac. `release-apple.sh`,
+  `store-shots.sh` and `ota.sh` use only it, never `MAC`, which may point at someone's own Mac;
+  list such Macs in `PERSONAL_MACS` and the scripts refuse them (and the app's tests skip them).
 - Xcode, XcodeGen and fastlane (Homebrew), and in the login keychain the certificates
   *Apple Distribution* and, for the Mac's installer package, *3rd Party Mac Developer Installer*.
   `MAC_UNLOCK` unlocks the keychain over SSH.

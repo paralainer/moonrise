@@ -25,8 +25,8 @@ if [ -f "$MOONRISE_ROOT/scripts/mac.env" ]; then
 fi
 PHONE_DEVICE=${ENV_PHONE_DEVICE:-${PHONE_DEVICE:-}}; IPAD_DEVICE=${ENV_IPAD_DEVICE:-${IPAD_DEVICE:-}}; TV_DEVICE=${ENV_TV_DEVICE:-${TV_DEVICE:-}}
 MAC=${MAC:-}
-# The store pipeline's Mac (release-apple.sh, store-shots.sh; use_release_mac below): the
-# environment's RELEASE_MAC wins over mac.env's.
+# The Mac for signed distribution builds (release-apple.sh, store-shots.sh, ota.sh; use_release_mac
+# below): the environment's RELEASE_MAC wins over mac.env's.
 RELEASE_MAC=${ENV_RELEASE_MAC:-${RELEASE_MAC:-}}; PERSONAL_MACS=${PERSONAL_MACS:-}
 MAC_DIR_GIVEN=${MAC_DIR:-}
 MAC_DIR=${MAC_DIR:-video-player}
@@ -34,7 +34,7 @@ SIM_PHONE=${SIM_PHONE:-}; SIM_TV=${SIM_TV:-}
 MAC_PATH=${MAC_PATH:-'export PATH=$HOME/bin:/usr/local/bin:/opt/homebrew/bin:$PATH'}
 MAC_UNLOCK=${MAC_UNLOCK:-}
 ASC_ENV=${ASC_ENV:-}; ASC_KEY_PATH=${ASC_KEY_PATH:-}
-FASTLANE_MAC=${FASTLANE_MAC:-$MAC}; TSKIT_MAC=${TSKIT_MAC:-$MAC}
+TSKIT_MAC=${TSKIT_MAC:-$MAC}
 MOONRISE_SERVER_URL=${MOONRISE_SERVER_URL:-}
 SHOT_DIR=${SHOT_DIR:-/tmp/moonrise-shots}
 
@@ -104,36 +104,49 @@ if [ "$MAC" = local ]; then
   }
 fi
 
-# The store pipeline (release-apple.sh, store-shots.sh) runs on RELEASE_MAC only, the build Mac with
-# the distribution certificates (user@host). MAC, FASTLANE_MAC and TSKIT_MAC are never used there:
-# they may name someone's own Mac. Hosts in PERSONAL_MACS (mac.env, space-separated, user@ optional,
-# any case) are refused.
-# release_mac_ok: RELEASE_MAC is set, is user@host, and isn't in PERSONAL_MACS. Prints why not.
+# Signed distribution builds (release-apple.sh and store-shots.sh for the App Store, ota.sh for the
+# ad-hoc IPA) run on RELEASE_MAC only, the build Mac with the distribution certificates (user@host).
+# MAC and TSKIT_MAC are never used there: they may name someone's own Mac. Hosts in PERSONAL_MACS
+# (mac.env, space-separated, user@ optional, any case) are refused.
 host_of() { local h=${1##*@}; printf '%s\n' "$h" | tr '[:upper:]' '[:lower:]'; }
-release_mac_ok() {
+# personal_mac <user@host>: whether that host is listed in PERSONAL_MACS.
+personal_mac() {
   local p
+  for p in $PERSONAL_MACS; do
+    [ "$(host_of "$p")" != "$(host_of "$1")" ] || return 0
+  done
+  return 1
+}
+# release_mac_ok: RELEASE_MAC is set, is user@host, and isn't in PERSONAL_MACS. Prints why not.
+release_mac_ok() {
   if [ -z "$RELEASE_MAC" ]; then
-    echo "error: no release Mac: set RELEASE_MAC=user@host (the build Mac with the distribution certificates) in scripts/mac.env or the environment; MAC and FASTLANE_MAC aren't used for the App Store" >&2
+    echo "error: no release Mac: set RELEASE_MAC=user@host (the build Mac with the distribution certificates) in scripts/mac.env or the environment; MAC isn't used for signed distribution builds" >&2
     return 1
   fi
   if [ "$RELEASE_MAC" = local ]; then
     echo "error: RELEASE_MAC=local isn't supported: name the Mac as user@host (Remote Login on)" >&2
     return 1
   fi
-  for p in $PERSONAL_MACS; do
-    if [ "$(host_of "$p")" = "$(host_of "$RELEASE_MAC")" ]; then
-      echo "error: RELEASE_MAC $RELEASE_MAC is listed in PERSONAL_MACS: the App Store pipeline never runs on a personal Mac" >&2
-      return 1
-    fi
-  done
+  if personal_mac "$RELEASE_MAC"; then
+    echo "error: RELEASE_MAC $RELEASE_MAC is listed in PERSONAL_MACS: signed distribution builds never run on a personal Mac" >&2
+    return 1
+  fi
+}
+# test_mac_ok: the app's tests (test-apple.sh, check.sh's Apple builds) may run on MAC: it isn't
+# listed in PERSONAL_MACS. Prints why not.
+test_mac_ok() {
+  if [ -n "$MAC" ] && [ "$MAC" != local ] && personal_mac "$MAC"; then
+    echo "MAC $MAC is listed in PERSONAL_MACS: the app's tests don't run on a personal Mac (run with MAC=user@host, a build Mac)" >&2
+    return 1
+  fi
 }
 # use_release_mac <folder>: from here on, MAC is RELEASE_MAC (checked with release_mac_ok before
 # reaching it), the folder there is ~/<folder>, ssh/rsync/scp are the real ones (no local mode), and
-# FASTLANE_MAC/TSKIT_MAC are empty. Exported, so the scripts this one runs (build.sh,
+# TSKIT_MAC is empty. Exported, so the scripts this one runs (build.sh,
 # build-tailscalekit.sh) do the same when they source this file, whatever mac.env says.
 use_release_mac() {
   unset -f ssh rsync scp 2>/dev/null || true
-  MAC=$RELEASE_MAC; FASTLANE_MAC=; TSKIT_MAC=
+  MAC=$RELEASE_MAC; TSKIT_MAC=
   MAC_DIR=$1
   export RELEASE_MAC MOONRISE_RELEASE_DIR=$1
 }

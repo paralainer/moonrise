@@ -141,7 +141,7 @@ All of them are listed in `clients/apple/Moonrise/Support/DebugSeams.swift`; rel
 Linux): `build.sh`, `sim.sh`/`tvsim.sh` (install and launch on simulators), `shot.sh`/`tap.sh`/
 `tvkey.sh` (screenshots and input through idb), `deploy-phone.sh`/`deploy-tv.sh`/`deploy-mac.sh`
 (signed installs; `deploy-android-tv.sh <tv-address>` builds the Android TV app in Docker and
-installs it over adb, see `clients/android/README.md`), `ota.sh` (an ad-hoc IPA), `release-apple.sh` and `store-shots.sh` (App Store builds, TestFlight, the listing and its screenshots, see [publishing.md](publishing.md#app-store)); `<script> --help` shows a script's
+installs it over adb, see `clients/android/README.md`), `ota.sh` (an ad-hoc IPA, built on `RELEASE_MAC` as the App Store builds are), `release-apple.sh` and `store-shots.sh` (App Store builds, TestFlight, the listing and its screenshots, see [publishing.md](publishing.md#app-store)); `<script> --help` shows a script's
 usage. They read the git-ignored `scripts/mac.env` (copy `scripts/mac.env.example`; at least `MAC`,
 the SSH target, or run with `MAC=user@host`) and the bundle id from `clients/apple/Config/`.
 
