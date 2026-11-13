@@ -18,9 +18,9 @@ class TrackMemoryTest {
     private fun audio(id: Int, language: String?, name: String = "", isDefault: Boolean = false) = AudioCandidate(id, language, isDefault, name)
     private fun memory(same: Boolean, audio: TrackPick? = null, subtitle: TrackPick? = null, off: Boolean = false) =
         TrackMemory(sameFile = same, audio = audio, subtitle = subtitle, subtitleOff = off)
-    private fun server(index: Int, title: String, language: String?) = SubtitleCandidate("t:$index", title, language, index)
-    /** A picture track (PGS, DVD, DVB): drawn by the app, picked as a text track is. */
-    private fun bitmap(id: String, title: String, language: String?) = SubtitleCandidate(id, title, language, null)
+    private fun server(index: Int, title: String, language: String?) = SubtitleCandidate("t:$index", title, language, index, picture = false)
+    /** A picture track (PGS, DVD, DVB): drawn by the app; a text one of the same kind goes first. */
+    private fun bitmap(id: String, title: String, language: String?) = SubtitleCandidate(id, title, language, null, picture = true)
     private fun remembered(options: List<SubtitleCandidate>, m: TrackMemory?): String = when (val r = TrackRules.rememberedSubtitle(options, m)) {
         is SubtitleMemory.Track -> r.id
         SubtitleMemory.Off -> "off"
@@ -53,7 +53,7 @@ class TrackMemoryTest {
     fun resumeKeepsTheSubtitles() {
         val options = listOf(
             server(3, "English", "eng"), server(4, "English · SDH", "eng"), server(5, "English · Forced", "eng"),
-            SubtitleCandidate("moonrise:20", "Russian · OpenSubtitles", "rus", 20),
+            SubtitleCandidate("moonrise:20", "Russian · OpenSubtitles", "rus", 20, picture = false),
         )
         assertEquals("t:4", remembered(options, memory(true, subtitle = TrackPick(index = 4, language = "en", title = "SDH", sdh = true))))
         assertEquals("forced, by hand", "t:5", remembered(options, memory(true, subtitle = TrackPick(index = 5, language = "en", forced = true))))
@@ -71,9 +71,8 @@ class TrackMemoryTest {
             server(9, "English · SDH", "eng"), server(10, "Russian", "rus"),
         )
         assertEquals("t:9", remembered(next, memory(false, subtitle = TrackPick(index = 4, language = "en", title = "SDH", sdh = true))))
-        // A picture track counts as a text one: the first plain English track, in the file's order.
-        assertEquals("the plain one, not the index", "pgs", remembered(next, memory(false, subtitle = TrackPick(index = 9, language = "en", sdh = false))))
-        assertEquals("t:8", remembered(next.drop(1), memory(false, subtitle = TrackPick(index = 9, language = "en", sdh = false))))
+        // Text before pictures: the plain text track, though the picture one comes first in the file.
+        assertEquals("the plain one, not the index", "t:8", remembered(next, memory(false, subtitle = TrackPick(index = 9, language = "en", sdh = false))))
         assertEquals("t:7", remembered(next, memory(false, subtitle = TrackPick(language = "en", forced = true))))
         assertEquals("t:10", remembered(next, memory(false, subtitle = TrackPick(language = "ru"))))
         assertEquals("not there", "usual", remembered(next, memory(false, subtitle = TrackPick(language = "ja"))))

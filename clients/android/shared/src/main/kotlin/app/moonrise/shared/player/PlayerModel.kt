@@ -1114,14 +1114,14 @@ class PlayerModel(
 
     /**
      * A title starting: subtitles in the preferred language when they are on (the kind picked last
-     * first: SDH or plain; picture tracks count as text ones), else forced
+     * first: SDH or plain; a picture track only when there is no text one), else forced
      * subtitles for foreign dialogue in the audio's language.
      */
     private fun autoSelectSubtitle() {
         if (selectedSubtitleId != null) return
         // The subtitles picked last in this title (or Off), or like those picked last in the show.
         var on = AppSettings.autoSubtitles
-        val candidates = subtitleOptions.map { SubtitleCandidate(it.id, it.title, it.language, it.trackIndex) }
+        val candidates = subtitleOptions.map { SubtitleCandidate(it.id, it.title, it.language, it.trackIndex, it.picture) }
         when (val m = TrackRules.rememberedSubtitle(candidates, trackMemory)) {
             is SubtitleMemory.Track -> {
                 Log.i("MoonriseSubs") { "picked last: ${m.id} (same file: ${trackMemory?.sameFile})" }
@@ -1134,7 +1134,10 @@ class PlayerModel(
         val lang = Languages.normalized(AppSettings.subtitleLanguage) ?: AppSettings.subtitleLanguage.lowercase()
         fun matches(o: SubtitleOption, l: String) = subtitleLanguage(o) == l
         if (on) {
-            val pool = subtitleOptions.filter { matches(it, lang) && !TrackRules.isForced(it.title) }
+            val all = subtitleOptions.filter { matches(it, lang) && !TrackRules.isForced(it.title) }
+            // A picture track, whose size and style can't change, only when there is no text one.
+            val text = all.filter { !it.picture }
+            val pool = text.ifEmpty { all }
             val o = pool.firstOrNull { TrackRules.isSDH(it.title) == AppSettings.preferSDHSubtitles } ?: pool.firstOrNull()
             if (o != null) { selectSubtitle(o); return }
         }

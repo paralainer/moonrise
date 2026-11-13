@@ -169,7 +169,7 @@ public sealed class PlayerPage : Grid
     private readonly DisplayRequest _awake = new("Moonrise playing video");
 
     private sealed record AudioOption(int Index, string Title, string? Detail, string? Language, string Name, bool IsDefault);
-    private sealed record SubOption(string Id, int Index, string Title, string? Language);
+    private sealed record SubOption(string Id, int Index, string Title, string? Language, bool Picture);
 
     public PlayerPage(Shell shell, Item item, double? start, string? version, IReadOnlyList<Item>? episodes, bool startFromBeginning)
     {
@@ -752,7 +752,7 @@ public sealed class PlayerPage : Grid
             var parts = new List<string> { lang };
             if (s.Forced == true) parts.Add("Forced");
             if (TrackRules.IsSDH(s.Name)) parts.Add("SDH");
-            options.Add(new SubOption($"s{s.Index}", s.Index, string.Join(" · ", parts), s.Language));
+            options.Add(new SubOption($"s{s.Index}", s.Index, string.Join(" · ", parts), s.Language, s.Picture));
         }
         _subOptions = options;
     }
@@ -766,7 +766,7 @@ public sealed class PlayerPage : Grid
             ?? _audioOptions.FirstOrDefault(o => o.IsDefault)?.Index ?? _audioOptions.FirstOrDefault()?.Index;
         ApplyAudio();
 
-        var candidates = _subOptions.Select(s => new SubtitleCandidate(s.Id, s.Title, s.Language, s.Index)).ToList();
+        var candidates = _subOptions.Select(s => new SubtitleCandidate(s.Id, s.Title, s.Language, s.Index, s.Picture)).ToList();
         var mem = TrackRules.RememberedSubtitle(candidates, memory);
         SubOption? choice = null;
         // Settings' subtitles: on in the preferred language, else forced ones only; the title's own pick first.
