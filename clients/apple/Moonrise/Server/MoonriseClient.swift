@@ -404,7 +404,7 @@ final class MoonriseClient: @unchecked Sendable {
         #endif
         async let detail = item(o.itemId)
         let (master, offer) = try await MoonriseServer.offer(base: base, itemId: o.itemId, start: o.start, quality: o.maxBitrate,
-                                                         burn: o.burnInIndex, version: o.versionId, headers: headers, timeout: 15)
+                                                         version: o.versionId, headers: headers, timeout: 15)
         let item = try await detail
         if let a = o.audioIndex, !offer.audio.contains(where: { $0.index == a }) {
             if let s = offer.session { await stop(sessionId: s) }

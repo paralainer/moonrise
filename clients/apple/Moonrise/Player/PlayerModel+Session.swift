@@ -72,7 +72,7 @@ extension PlayerModel {
         do {
             let plan = try await client.playback(PlaybackOptions(
                 itemId: item.id, versionId: wantedVersion ?? mediaSource?.id, start: start, maxBitrate: quality.bitrate,
-                audioIndex: selectedAudio, burnInIndex: burnInIndex, isRetry: reuse))
+                audioIndex: selectedAudio, isRetry: reuse))
             #if DEBUG
             mark("playbackInfo")
             #endif
@@ -155,11 +155,11 @@ extension PlayerModel {
     #endif
 
     /// The Moonrise server copies the video (the audio is copied too, or converted), or transcodes
-    /// it: a lower quality, a codec Apple devices can't play, HDR tone-mapped, subtitles burned in.
+    /// it: a lower quality, a codec Apple devices can't play, HDR tone-mapped.
     func moonriseLabel(audio: Int?) -> String {
         if client is DemoClient { return "Direct · Demo stream" }
         if let v = moonriseVariant, v.transcode {
-            var parts = [v.burn != nil ? "Transcode + Subtitles" : "Transcode"]
+            var parts = ["Transcode"]
             if v.label != "Original" { parts.append(v.label) }
             return (parts + ["Moonrise Server"]).joined(separator: " · ")
         }
@@ -193,7 +193,7 @@ extension PlayerModel {
 
     /// Restart the stream where it is (a new session's playlist also lists tracks added since).
     func reloadKeepingPosition() {
-        // Recovering: the new session carries the change (burn-in, quality, tracks added).
+        // Recovering: the new session carries the change (quality, tracks added).
         guard recovery == .none else { return }
         let t = currentTime
         Task { await loadServer(at: t, keepSubtitle: true, inPlace: true) }

@@ -163,6 +163,7 @@ final class AVPlayerEngine: NSObject, PlayerEngine {
 
     /// The current item failed (it plays nothing more).
     var hasFailed: Bool { player.currentItem?.status == .failed }
+    var presentationSize: CGSize { player.currentItem?.presentationSize ?? .zero }
 
     /// The item has nothing buffered at the playhead (AVPlayer stops for that, not the viewer).
     var isBufferEmpty: Bool { player.currentItem?.isPlaybackBufferEmpty ?? false }

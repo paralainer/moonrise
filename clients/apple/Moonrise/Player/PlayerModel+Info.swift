@@ -3,6 +3,9 @@ import Foundation
 extension PlayerModel {
     /// What the overlay draws.
     var overlayText: String? { subtitlesOnReceiver || recovery != .none ? nil : subtitleText }
+    /// The picture cues the overlay draws, and their canvas.
+    var overlayPictures: [PictureCue] { subtitlesOnReceiver || recovery != .none ? [] : pictureCues }
+    var pictureCanvas: CGSize { pictureDoc?.canvas ?? .zero }
 
     /// The server this plays from (a download: the one it came from), for downloading other episodes.
     var source: Source? {

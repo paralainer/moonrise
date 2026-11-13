@@ -16,7 +16,7 @@ extension PlayerModel {
         PlaybackReport(
             itemId: item?.id ?? "", versionId: mediaSource?.id, sessionId: playSessionId,
             position: currentTime, isPaused: paused, playMethod: playMethod,
-            audioIndex: selectedAudio, subtitleIndex: burnInIndex, creditsStart: SegmentRules.creditsStart(segments),
+            audioIndex: selectedAudio, subtitleIndex: subtitleOptions.first { $0.id == selectedSubtitleId }?.trackIndex, creditsStart: SegmentRules.creditsStart(segments),
             tracks: tracksPlaying())
     }
 

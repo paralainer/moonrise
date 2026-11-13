@@ -13,8 +13,14 @@ extension PlayerScreen {
                     .overlay {
                         // Above the transport bar (title, scrubber, the tabs row) while it shows.
                         GeometryReader { geo in
-                            SubtitleOverlay(text: model.overlayText, height: geo.size.height,
-                                            raisedBottom: tvBarVisible ? Self.tvRaisedBottom : nil)
+                            ZStack {
+                                PictureSubtitleOverlay(cues: model.overlayPictures, canvas: model.pictureCanvas,
+                                                       videoSize: model.videoSize,
+                                                       raisedBottom: tvBarVisible ? Self.tvRaisedBottom : nil)
+                                    .ignoresSafeArea() // over the whole picture, as the system player shows it
+                                SubtitleOverlay(text: model.overlayText, height: geo.size.height,
+                                                raisedBottom: tvBarVisible ? Self.tvRaisedBottom : nil)
+                            }
                         }
                         .allowsHitTesting(false)
                     }

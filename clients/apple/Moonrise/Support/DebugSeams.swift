@@ -31,9 +31,10 @@ import Foundation
 /// - `MOONRISE_AUTOPLAY=<item id>`: play it on launch [AUTOPLAY]; `MOONRISE_AUTOPLAY_AT=<seconds>`
 ///   from there, also for `MOONRISE_PLAY_DOWNLOAD` [AT].
 /// - After the first start, as the menus would: `MOONRISE_AUTOPLAY_AUDIO=<track index>` [AUDIO],
-///   `MOONRISE_AUTOPLAY_QUALITY=<bits/s>` (0: Original) [QUALITY], `MOONRISE_AUTOPLAY_BURN=<track index>`
-///   (a bitmap subtitle, burned in) [BURN], `MOONRISE_AUTOPLAY_SEEK=<seconds>` [SEEK],
-///   `MOONRISE_AUTOPLAY_SUB=<option id>` ("t:4", "moonrise:10000", "none") [SUB],
+///   `MOONRISE_AUTOPLAY_QUALITY=<bits/s>` (0: Original) [QUALITY], `MOONRISE_AUTOPLAY_SEEK=<seconds>`
+///   [SEEK], `MOONRISE_AUTOPLAY_PAUSE=<seconds>` (pauses once playback gets there) [PAUSE],
+///   `MOONRISE_AUTOPLAY_SUB=<option id>` ("t:4", "moonrise:10000", "none"; a picture track
+///   too) [SUB],
 ///   `MOONRISE_AUTOPLAY_SUBSEARCH=<language>` (search OpenSubtitles through the server, fetch the
 ///   first result) [SUBSEARCH], `MOONRISE_AUTOPLAY_VERSION=<file id>` (6 s in) [VERSION].
 /// - `MOONRISE_EXTPLAY="8:on,16:sub=t:3,24:sub=none,30:off"`: AirPlay as the simulator can't, with
@@ -86,7 +87,7 @@ struct DebugSeams {
         case mark = "MOONRISE_MARK"
         case autoplay = "MOONRISE_AUTOPLAY", autoplayAt = "MOONRISE_AUTOPLAY_AT"
         case autoplayAudio = "MOONRISE_AUTOPLAY_AUDIO", autoplayQuality = "MOONRISE_AUTOPLAY_QUALITY"
-        case autoplayBurn = "MOONRISE_AUTOPLAY_BURN", autoplaySeek = "MOONRISE_AUTOPLAY_SEEK"
+        case autoplaySeek = "MOONRISE_AUTOPLAY_SEEK", autoplayPause = "MOONRISE_AUTOPLAY_PAUSE"
         case autoplaySub = "MOONRISE_AUTOPLAY_SUB", autoplaySubSearch = "MOONRISE_AUTOPLAY_SUBSEARCH"
         case autoplayVersion = "MOONRISE_AUTOPLAY_VERSION"
         case extPlay = "MOONRISE_EXTPLAY"
@@ -154,8 +155,8 @@ struct DebugSeams {
     var autoplayAt: Double { number(.autoplayAt) ?? 0 }
     var autoplayAudio: Int? { integer(.autoplayAudio) }
     var autoplayQuality: Int? { integer(.autoplayQuality) }
-    var autoplayBurn: Int? { integer(.autoplayBurn) }
     var autoplaySeek: Double? { number(.autoplaySeek) }
+    var autoplayPause: Double? { number(.autoplayPause) }
     var autoplaySub: String? { text(.autoplaySub) }
     var autoplaySubSearch: String? { text(.autoplaySubSearch) }
     var autoplayVersion: String? { text(.autoplayVersion) }

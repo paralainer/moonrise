@@ -135,8 +135,9 @@ struct SubtitleOption: Identifiable, Hashable {
     enum Kind: Hashable {
         /// Fetch the file and render it with our overlay.
         case external(URL)
-        /// An image-based track: ask the server to burn it in.
-        case burnIn(index: Int)
+        /// A picture track (PGS, DVD, DVB): its images come from the server in windows and are
+        /// drawn over the video.
+        case pictures(index: Int)
         /// Embedded track handled by the engine itself.
         case engine(Int)
     }

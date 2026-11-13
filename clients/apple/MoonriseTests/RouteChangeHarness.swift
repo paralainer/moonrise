@@ -18,7 +18,6 @@ struct FakeSession: Sendable {
     let start: Double?
     let version: String?
     let quality: String?
-    let burn: String?
     /// The route it was opened on.
     let route: Int
 }
@@ -134,7 +133,7 @@ final class FakeMoonrise: @unchecked Sendable {
         if parts.count == 4, parts[1] == "items", parts[3] == "playback" {
             let sid = "session\(sessions.count + 1)"
             let s = FakeSession(id: sid, start: query["start"].flatMap(Double.init), version: query["version"],
-                                quality: query["quality"], burn: query["burn"], route: route)
+                                quality: query["quality"], route: route)
             lock.withLock { _sessions.append(s) }
             var p = playbackTemplate
             p["session"] = sid

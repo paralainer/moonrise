@@ -90,6 +90,11 @@ final class PlayerModel {
     }
     @ObservationIgnored private var noticeTask: Task<Void, Never>?
     var subtitleDoc: SubtitleDocument?
+    /// The selected picture track's cues known so far (`PictureCue`), and those showing now.
+    var pictureDoc: PictureDocument?
+    var pictureCues: [PictureCue] = []
+    /// The video's picture size as it shows (for placing picture cues).
+    var videoSize: CGSize = .zero
     /// The selected server track fetched in windows around the playhead (it isn't extracted yet).
     @ObservationIgnored var windowLoader: SubtitleWindowLoader?
     /// Bumped when a track's timing changes (the menus read it).
@@ -130,8 +135,8 @@ final class PlayerModel {
     @ObservationIgnored var onPictureInPictureEnded: (() -> Void)?
     /// The video plays on an AirPlay receiver.
     var isExternalPlayback = false
-    /// The receiver shows the selected subtitle itself (the stream's rendition, or burned in), so
-    /// the overlay draws nothing.
+    /// The receiver shows the selected subtitle itself (the stream's rendition), so the overlay
+    /// draws nothing.
     var subtitlesOnReceiver = false {
         didSet {
             #if DEBUG
@@ -170,6 +175,8 @@ final class PlayerModel {
     #if DEBUG
     @ObservationIgnored var debugAudioApplied = false
     @ObservationIgnored var debugSeekTarget: Double?
+    /// `MOONRISE_AUTOPLAY_PAUSE` has paused playback.
+    @ObservationIgnored var debugPaused = false
     #endif
     // MARK: Stream recovery state (see "Stream recovery" below)
 
@@ -237,7 +244,6 @@ final class PlayerModel {
     /// The last stream request the server refused (status, address): asked again for its answer's
     /// text when recovery gives up, to say why.
     @ObservationIgnored var lastStreamError: (status: Int, uri: String)?
-    var burnInIndex: Int?
     var lastReport = Date.distantPast
 
     var progressKey: String?

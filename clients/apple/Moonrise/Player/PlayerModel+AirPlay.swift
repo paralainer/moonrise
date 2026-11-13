@@ -9,7 +9,10 @@ extension PlayerModel {
     /// Tell the native engine which rendition mirrors the overlay track, for PiP and AirPlay.
     func updatePiPSubtitle() {
         guard let av = engine as? AVPlayerEngine else { return }
-        if let id = selectedSubtitleId, id.hasPrefix("file:"), let rec = local,
+        if let id = selectedSubtitleId, let o = subtitleOptions.first(where: { $0.id == id }), TrackRules.isPicture(o) {
+            // Pictures are drawn by the overlay: the stream has no rendition of them.
+            av.nativeSubtitle = nil
+        } else if let id = selectedSubtitleId, id.hasPrefix("file:"), let rec = local,
            let s = rec.subtitles.first(where: { "file:\($0.file)" == id }), let name = s.rendition {
             // A download's subtitle: its rendition in the local playlist.
             av.nativeSubtitle = (name, s.language)
@@ -115,9 +118,14 @@ extension PlayerModel {
             return
         }
         switch option.kind {
-        case .burnIn:
-            // Part of the picture.
-            subtitlesOnReceiver = true
+        case .pictures:
+            // Images drawn here: the receiver has no rendition of them, so they show on this
+            // device's screen.
+            subtitlesOnReceiver = false
+            if !airPlayFallbacks.contains(option.id) {
+                airPlayFallbacks.insert(option.id)
+                notice = "Picture subtitles show on this device, not on the AirPlay screen"
+            }
             return
         case .engine, .external:
             break

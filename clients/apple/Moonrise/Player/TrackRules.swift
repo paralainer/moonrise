@@ -25,8 +25,8 @@ enum TrackRules {
         o.title.range(of: #"(?i)\b(sdh|cc|hearing)\b"#, options: .regularExpression) != nil
     }
 
-    static func isBurnIn(_ o: SubtitleOption) -> Bool {
-        if case .burnIn = o.kind { return true }
+    static func isPicture(_ o: SubtitleOption) -> Bool {
+        if case .pictures = o.kind { return true }
         return false
     }
 
@@ -39,35 +39,37 @@ enum TrackRules {
     }
 
     /// A file's subtitle track as a menu choice: a text track needs its file's address (`url`), a
-    /// bitmap one is burned in by the server. Nil: a text track with no address.
+    /// picture one (PGS, DVD, DVB) comes as images from the server. Nil: a text track with no
+    /// address.
     static func fileSubtitleOption(_ s: TrackInfo, url: () -> URL?) -> SubtitleOption? {
         let kind: SubtitleOption.Kind
         if s.isText ?? true {
             guard let u = url() else { return nil }
             kind = .external(u)
         } else {
-            kind = .burnIn(index: s.index)
+            kind = .pictures(index: s.index)
         }
         return SubtitleOption(id: "t:\(s.index)", title: s.label, language: s.language, kind: kind, trackIndex: s.index)
     }
 
     /// The subtitles a title starts with: when they are on (`autoSelect`), the preferred language's
-    /// (`language`; the kind picked last first, SDH or plain, `preferSDH`; a bitmap track, burned in
-    /// by the server, only when there is no text one), never a forced one; else forced subtitles
-    /// for foreign dialogue in the audio's language (`audioLanguage`, normalized), or the first
-    /// forced track when the audio's language isn't known. Nil: subtitles stay off.
+    /// (`language`; the kind picked last first, SDH or plain, `preferSDH`; a picture track, whose
+    /// size and style can't change, only when there is no text one), never a forced one; else
+    /// forced subtitles for foreign dialogue in the audio's language (`audioLanguage`,
+    /// normalized), text or pictures, or the first forced track when the audio's language isn't
+    /// known. Nil: subtitles stay off.
     static func autoSubtitle(_ options: [SubtitleOption], autoSelect: Bool, language: String, preferSDH: Bool,
                              audioLanguage: String?) -> SubtitleOption? {
         let lang = LanguageCode.normalized(language) ?? language.lowercased()
         func matches(_ o: SubtitleOption, _ lang: String) -> Bool { subtitleLanguage(o) == lang }
         if autoSelect {
             let all = options.filter { matches($0, lang) && !isForced($0) }
-            let text = all.filter { !isBurnIn($0) }
+            let text = all.filter { !isPicture($0) }
             let pool = text.isEmpty ? all : text
             if let o = pool.first(where: { isSDH($0) == preferSDH }) ?? pool.first { return o }
         }
         // Forced subtitles translate the foreign dialogue for viewers of the audio's language.
-        let forced = options.filter { isForced($0) && !isBurnIn($0) }
+        let forced = options.filter { isForced($0) }
         if let audioLanguage { return forced.first { matches($0, audioLanguage) } }
         return forced.first
     }
@@ -139,13 +141,6 @@ enum TrackRules {
         return d?.isEmpty == false ? d : nil
     }
 
-    /// A remembered subtitle's title. The menus used to add " (burned in)" to a bitmap track, and a
-    /// choice kept from then may still say it: without those words it matches today's names.
-    static func rememberedSubtitleTitle(_ title: String?) -> String? {
-        let t = title?.replacingOccurrences(of: " (burned in)", with: "").trimmingCharacters(in: .whitespaces)
-        return t?.isEmpty == false ? t : nil
-    }
-
     private static let extraAudio = #"(?i)comment|descri|narrat|director"#
 
     private static func sameText(_ a: String?, _ b: String?) -> Bool {
@@ -189,7 +184,7 @@ enum TrackRules {
 
     /// The subtitles picked last, among `options`: in the same file the track with its index (when
     /// its language agrees); else one of the same language and kind (forced or full), the same
-    /// SDH and title first, text over bitmap.
+    /// SDH and title first, text before pictures.
     static func rememberedSubtitle(_ options: [SubtitleOption], memory: Memory?) -> SubtitleMemory {
         guard let memory else { return .usual }
         if memory.subtitleOff { return memory.sameFile ? .off : .usualOff }
@@ -202,11 +197,10 @@ enum TrackRules {
         }
         let forced = want.forced ?? false
         let pool = options.filter { subtitleLanguage($0) == lang && isForced($0) == forced }
-        let title = rememberedSubtitleTitle(want.title)
+        let title = want.title.map { $0.trimmingCharacters(in: .whitespaces) }.flatMap { $0.isEmpty ? nil : $0 }
         if lang == nil, pool.isEmpty || title == nil { return .usual }
         let sdh = want.sdh ?? false
-        let text = pool.filter { !isBurnIn($0) }
-        let ordered = (text.isEmpty ? pool : text + pool.filter(isBurnIn))
+        let ordered = pool.filter { !isPicture($0) } + pool.filter(isPicture)
         let found = ordered.first { isSDH($0) == sdh && sameText(title, $0.title) }
             ?? ordered.first { sameText(title, $0.title) && lang != nil }
             ?? ordered.first { isSDH($0) == sdh && lang != nil }

@@ -6,7 +6,8 @@ import Foundation
 /// (switching doesn't reload the stream; tracks Apple devices can't play, such as DTS, TrueHD,
 /// MP3 or Vorbis, are converted to AAC or E-AC-3) and has correctly timed subtitle renditions.
 /// Video is copied, or transcoded on its GPU for a lower quality, codecs Apple devices can't
-/// play, HDR on displays without it (tone-mapped) and burned-in bitmap subtitles. It also
+/// play and HDR on displays without it (tone-mapped); picture subtitles come as images the app
+/// draws over the video (`subtitles/{index}/cues`). It also
 /// extracts text subtitles (kept on the server, so a track is quick after the first play),
 /// prepares downloads (the original, or a progressive MP4 AVPlayer plays offline, at any
 /// quality) and searches/fetches subtitles on OpenSubtitles.com with its own account.
@@ -64,7 +65,6 @@ enum MoonriseServer {
             let label: String
             let bitrate: Int
             let transcode: Bool
-            let burn: Int?
         }
 
         /// The variant played.
@@ -324,18 +324,36 @@ enum MoonriseServer {
     /// A window of a subtitle track (`GET /v1/items/{id}/subtitles/{index}/cues?window=k`): the
     /// cues showing during [from, to) of the file's time, read on their own while the whole track
     /// isn't extracted yet (a fraction of a second). `complete`: the whole track is ready.
+    /// A picture track (PGS, DVD, DVB) answers the same way with images: the `canvas` they are
+    /// placed on, and each cue's `image` (its place on the canvas and a PNG), with no text.
     struct SubtitleWindow: Decodable {
         let window: Int
         let from: Double
         let to: Double
         let complete: Bool
         let source: String?
+        let canvas: Canvas?
         let cues: [Cue]
 
         struct Cue: Decodable {
             let start: Double
             let end: Double
             let text: String
+            let image: Image?
+        }
+
+        struct Canvas: Decodable {
+            let width: Double
+            let height: Double
+        }
+
+        struct Image: Decodable {
+            let x: Double
+            let y: Double
+            let width: Double
+            let height: Double
+            /// Base64.
+            let png: String
         }
     }
 
@@ -413,7 +431,7 @@ enum MoonriseServer {
         /// `supported: false`, with the server's reasons; `pending`: its keyframe index is still
         /// being made (ask again later).
         case unsupported([String], pending: Bool)
-        /// Served, but not as asked (HDR to an SDR display, a quality or burn-in it doesn't honour).
+        /// Served, but not as asked (HDR to an SDR display, a quality it doesn't honour).
         case notAsAsked
 
         var errorDescription: String? {
@@ -461,10 +479,10 @@ enum MoonriseServer {
     }
 
     /// The server's stream for `itemId`, starting at `start`, at `quality` (bits/s; nil: the
-    /// original) with bitmap subtitle `burn` burned in, or nil when it can't serve that.
-    static func playback(base: URL, itemId: String, start: Double, quality: Int? = nil, burn: Int? = nil,
+    /// original), or nil when it can't serve that.
+    static func playback(base: URL, itemId: String, start: Double, quality: Int? = nil,
                          headers: [String: String]) async -> (URL, Playback)? {
-        try? await offer(base: base, itemId: itemId, start: start, quality: quality, burn: burn, headers: headers)
+        try? await offer(base: base, itemId: itemId, start: start, quality: quality, headers: headers)
     }
 
     /// `lossless=1` for an audio output that takes more than 2 channels: lossless multichannel
@@ -490,7 +508,7 @@ enum MoonriseServer {
     }
 
     /// `playback`, saying why when the server doesn't serve it.
-    static func offer(base: URL, itemId: String, start: Double, quality: Int? = nil, burn: Int? = nil, version: String? = nil,
+    static func offer(base: URL, itemId: String, start: Double, quality: Int? = nil, version: String? = nil,
                       headers: [String: String], timeout: TimeInterval = 6) async throws -> (URL, Playback) {
         var c = URLComponents(url: base.appendingPathComponent("v1/items/\(itemId)/playback"), resolvingAgainstBaseURL: false)
         // AVPlayer refuses an HDR-only stream on a display that can't show HDR; the server then
@@ -500,7 +518,6 @@ enum MoonriseServer {
         if let lossless = losslessQuery(multichannel: multichannelOutput) { c?.queryItems?.append(lossless) }
         if start > 1 { c?.queryItems?.append(URLQueryItem(name: "start", value: String(format: "%.3f", start))) }
         if let quality { c?.queryItems?.append(URLQueryItem(name: "quality", value: String(quality))) }
-        if let burn { c?.queryItems?.append(URLQueryItem(name: "burn", value: String(burn))) }
         if let dv = dolbyVisionQuery(hdr: hdr, dolbyVision: dolbyVisionDisplay) { c?.queryItems?.append(dv) }
         if let version { c?.queryItems?.append(URLQueryItem(name: "version", value: version)) }
         #if os(tvOS)
@@ -520,16 +537,15 @@ enum MoonriseServer {
         // play through a master playlist in testing). Servers that transcode tone-map it for us,
         // so `video` says SDR; older ones send the copy.
         let hdrServed = p.video.map { $0.range != "SDR" } ?? false
-        // A quality or burn-in only a server with variants honours (older ones send the copy).
-        let honoured = (quality == nil && burn == nil) || p.served != nil
-        let burnt = burn == nil || p.served?.burn == burn
+        // A quality only a server with variants honours (older ones send the copy).
+        let honoured = quality == nil || p.served != nil
         guard p.supported, let master = p.master, let masterURL = URL(string: master, relativeTo: base)?.absoluteURL else {
             #if DEBUG
             fputs("MoonriseServer: not served (\(p.reasons.joined(separator: "; ")))\n", stderr)
             #endif
             throw OfferError.unsupported(p.reasons, pending: p.pending == true)
         }
-        guard !(hdrServed && !hdr), honoured, burnt else {
+        guard !(hdrServed && !hdr), honoured else {
             #if DEBUG
             fputs("MoonriseServer: not served as asked (hdr \(hdrServed), variant \(p.variant ?? "-"))\n", stderr)
             #endif

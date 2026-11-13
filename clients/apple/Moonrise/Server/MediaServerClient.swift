@@ -179,8 +179,6 @@ struct PlaybackOptions {
     var maxBitrate: Int?
     /// The audio track wanted (nil: the version's default).
     var audioIndex: Int?
-    /// A bitmap subtitle track to burn into the picture.
-    var burnInIndex: Int?
     /// A new session after the previous stream failed (the one retry).
     var isRetry = false
 }
@@ -211,7 +209,7 @@ struct PlaybackReport {
     var isPaused: Bool
     var playMethod: PlayMethod
     var audioIndex: Int?
-    /// The burned-in subtitle track.
+    /// The subtitle track showing (the server's index).
     var subtitleIndex: Int?
     /// Where the end credits start (`SegmentRules.creditsStart`).
     var creditsStart: Double? = nil
