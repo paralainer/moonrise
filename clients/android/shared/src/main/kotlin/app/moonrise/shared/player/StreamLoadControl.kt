@@ -12,7 +12,7 @@ import app.moonrise.shared.Log
  *
  * The server's streams keep video and audio in separate renditions. When the viewer picks
  * another audio track, Media3 drops the buffered audio but keeps the video, which can already
- * fill the whole buffer budget (a burned-in subtitle stream is a 20 Mbps transcode: 50 s of it is
+ * fill the whole buffer budget (a 20 Mbps transcode: 50 s of it is
  * about the size of the default budget). The default rules then refuse to load anything ("target
  * buffer size reached with less than 500 ms of buffered media data"), the new audio never comes,
  * and after 4 s Media3 fails with "Playback stuck buffering and not loading"

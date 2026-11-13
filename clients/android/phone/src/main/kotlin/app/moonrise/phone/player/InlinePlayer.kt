@@ -73,6 +73,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaSession
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import app.moonrise.shared.player.pictureSubtitles
 import app.moonrise.core.NextEpisodeRules
 import app.moonrise.phone.ui.DetailsCapsule
 import app.moonrise.phone.ui.ProblemDetailsDialog
@@ -173,6 +174,8 @@ fun InlinePlayer(host: PlayerHost, fullScreen: Boolean, onBack: () -> Unit, modi
             modifier = Modifier.fillMaxSize(),
         )
 
+        // Picture subtitles where the track places them on the picture (cropped with it when it fills the screen).
+        Box(Modifier.fillMaxSize().pictureSubtitles(model) { host.fill })
         BoxWithConstraints(Modifier.fillMaxSize()) {
             SubtitleText(model.subtitleText.takeIf { !model.recovering && model.failure == null }, raised = controls, fullScreen = fullScreen)
             // Taps, double taps, pinches; full screen, brightness and volume.

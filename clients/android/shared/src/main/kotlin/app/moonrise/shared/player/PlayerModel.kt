@@ -48,6 +48,8 @@ import app.moonrise.core.SkipMode
 import app.moonrise.core.StreamChoice
 import app.moonrise.core.StreamGiveUp
 import app.moonrise.core.StreamSwitches
+import app.moonrise.core.PictureCue
+import app.moonrise.core.PictureCues
 import app.moonrise.core.SubtitleCandidate
 import app.moonrise.core.SubtitleDocument
 import app.moonrise.core.SubtitleMemory
@@ -100,23 +102,27 @@ data class SubtitleOption(
     /** "Russian · NovGoblin · Forced": the menu's title is the first part, its detail the rest. */
     val title: String,
     val language: String?,
-    /** A text track's file on the server (drawn by the app), or null: a bitmap track, burned in by the server. */
+    /** A text track's file on the server (drawn by the app), or null: a picture track (PGS, DVD, DVB), its images fetched in windows. */
     val url: String?,
     /** The server's index of the track. */
     val trackIndex: Int,
 ) {
-    val burnIn: Boolean get() = url == null
+    /** A picture track: the server's images, drawn over the video by the app. */
+    val picture: Boolean get() = url == null
     val name: String get() = title.split(" · ").first()
     val detail: String? get() = title.split(" · ").drop(1).joinToString(" · ").ifEmpty { null }
 }
+
+/** A picture subtitle showing: its cue (place on the canvas) and its image. */
+class ShownPicture(val cue: PictureCue, val image: ImageBitmap)
 
 /** Playback stopped and couldn't be brought back: what happened. */
 data class StreamFailure(val title: String, val detail: String)
 
 /**
  * The player's state and rules, as the Apple TV app's `PlayerModel` has them: the server's
- * session played through Media3; audio and subtitle choices (text subtitles drawn by the app, so
- * their delay can change; bitmap ones burned in by the server); quality and version; Skip Intro,
+ * session played through Media3; audio and subtitle choices (subtitles drawn by the app, so their
+ * delay can change: text ones as text, picture ones as the server's images); quality and version; Skip Intro,
  * Skip Credits and Next Episode (`SegmentService`); playback reports; and recovery when the
  * stream is lost (the server restarted, the network dropped).
  *
@@ -198,6 +204,14 @@ class PlayerModel(
         private set
     var subtitleText by mutableStateOf<String?>(null)
         private set
+    /** The picture subtitles showing now (a picture track), with the canvas they are placed on. */
+    var subtitlePictures by mutableStateOf<List<ShownPicture>>(emptyList())
+        private set
+    var pictureCanvas by mutableStateOf<SubtitleWindow.Canvas?>(null)
+        private set
+    /** The video's aspect ratio as shown (width / height, pixel aspect applied); null until known. */
+    var videoAspect by mutableStateOf<Float?>(null)
+        private set
     /** Seconds the selected subtitles are moved (later when positive). */
     var subtitleDelay by mutableStateOf(0.0)
         private set
@@ -206,7 +220,9 @@ class PlayerModel(
         private set
     private var serverSubtitles: List<SubtitleTrack>? = null
     private var subtitleDoc: SubtitleDocument? = null
-    private var burnIndex: Int? = null
+    /** A picture track's cues so far, and their images decoded (by cue key). */
+    private var pictureCues: PictureCues? = null
+    private val pictureBitmaps = HashMap<String, ImageBitmap>()
 
     /** The tracks the user picked last in this title, or in the show (the playback answer's `tracks`). */
     private var trackMemory: TrackMemory? = null
@@ -480,11 +496,10 @@ class PlayerModel(
         playIntent = autoplay
         val version = wantedVersion
         val q = quality.capped(versionFile()?.bitrate, versionFile()?.videoHeight).bitrate
-        val burn = burnIndex
         Session.background.launch {
             // On the app's scope: the answer is awaited even if the player has gone, so a session
             // it opens is always closed.
-            val result = runCatching { offer(r, start, version, q, burn) }
+            val result = runCatching { offer(r, start, version, q) }
             val offer = result.getOrNull()
             val keep = withContext(Dispatchers.Main) {
                 if (r.closed || closed) return@withContext false
@@ -507,14 +522,14 @@ class PlayerModel(
         startTicker()
     }
 
-    private suspend fun offer(r: Run, start: Double?, version: String?, quality: Long?, burn: Int?): Playback {
-        var p = api.playback(item.id, start, hdr, version, quality, burn, lossless, dolbyVision)
+    private suspend fun offer(r: Run, start: Double?, version: String?, quality: Long?): Playback {
+        var p = api.playback(item.id, start, hdr, version, quality, lossless, dolbyVision)
         var tries = 0
         while (!p.supported && p.pending == true && tries < 20 && !r.closed) {
             withContext(Dispatchers.Main) { if (!r.closed) status = "Preparing the file on the server…" }
             delay(3000)
             tries++
-            p = api.playback(item.id, start, hdr, version, quality, burn, lossless, dolbyVision)
+            p = api.playback(item.id, start, hdr, version, quality, lossless, dolbyVision)
         }
         return p
     }
@@ -538,15 +553,15 @@ class PlayerModel(
         offer.mediaSourceId?.let { playingVersion = it; wantedVersion = it }
         offer.duration?.takeIf { it > 0 }?.let { duration = it }
         playMethod = when (offer.method) {
-            "transcode" -> (if (burnIndex != null) "Transcode + Subtitles" else "Transcode") + " · Moonrise Server"
+            "transcode" -> "Transcode · Moonrise Server"
             "convert" -> "Remux + Audio · Moonrise Server"
             else -> "Remux · Moonrise Server"
         }
         videoLine = offer.video?.let { v -> listOfNotNull(v.codec.uppercase(), v.height?.let { "${it}p" }, v.range.takeIf { it != "SDR" }).joinToString(" · ") }
         if (!keepSubtitle) trackMemory = offer.tracks
-        Log.i(TAG) { "playing ${item.id} method=${offer.method} variant=${offer.variant} video=${offer.video?.codec}/${offer.video?.range} ${offer.video?.width}x${offer.video?.height} audio=${offer.audio.size} burn=$burnIndex start=${start ?: 0.0} autoplay=$autoplay" }
+        Log.i(TAG) { "playing ${item.id} method=${offer.method} variant=${offer.variant} video=${offer.video?.codec}/${offer.video?.range} ${offer.video?.width}x${offer.video?.height} audio=${offer.audio.size} start=${start ?: 0.0} autoplay=$autoplay" }
         buildAudioOptions()
-        // The start goes with the item: a restart (burn-in, quality, version, recovery) loads from
+        // The start goes with the item: a restart (quality, version, recovery) loads from
         // there, never from 0 first (the server would start a transcode at segment 0, and the
         // clock would read 0 for a moment, entering an intro that starts there).
         val item = MediaItem.fromUri(master)
@@ -674,6 +689,10 @@ class PlayerModel(
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                 this@PlayerModel.playWhenReady = playWhenReady
                 if (reason == Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST) playIntent = playWhenReady
+            }
+
+            override fun onVideoSizeChanged(size: androidx.media3.common.VideoSize) {
+                if (size.width > 0 && size.height > 0) videoAspect = size.width * size.pixelWidthHeightRatio / size.height
             }
 
             override fun onRenderedFirstFrame() {
@@ -1064,8 +1083,8 @@ class PlayerModel(
     // ------------------------------------------------------------------ subtitles
 
     /**
-     * The file's tracks (text ones from the server's files, bitmap ones burned in), then the
-     * tracks the server fetched from OpenSubtitles.
+     * The file's tracks (text ones from the server's files, picture ones as the server's images),
+     * then the tracks the server fetched from OpenSubtitles.
      */
     private fun buildSubtitleOptions() {
         val file = versionFile()
@@ -1078,6 +1097,8 @@ class PlayerModel(
                 val url = byIndex[s.index]?.url?.let { api.resolve(it) } ?: api.resolve("/v1/items/$mediaId/subtitles/${s.index}.srt") ?: return@mapNotNull null
                 SubtitleOption("t:${s.index}", s.subtitleLabel, s.language, url, s.index)
             } else {
+                // A picture track: the server's images (when its list is known, only the formats it reads).
+                if (server != null && s.index !in byIndex) return@mapNotNull null
                 SubtitleOption("t:${s.index}", s.subtitleLabel, s.language, null, s.index)
             }
         }
@@ -1093,14 +1114,14 @@ class PlayerModel(
 
     /**
      * A title starting: subtitles in the preferred language when they are on (the kind picked last
-     * first: SDH or plain; a bitmap track, burned in, when there is no text one), else forced
+     * first: SDH or plain; picture tracks count as text ones), else forced
      * subtitles for foreign dialogue in the audio's language.
      */
     private fun autoSelectSubtitle() {
         if (selectedSubtitleId != null) return
         // The subtitles picked last in this title (or Off), or like those picked last in the show.
         var on = AppSettings.autoSubtitles
-        val candidates = subtitleOptions.map { SubtitleCandidate(it.id, it.title, it.language, it.trackIndex, it.burnIn) }
+        val candidates = subtitleOptions.map { SubtitleCandidate(it.id, it.title, it.language, it.trackIndex) }
         when (val m = TrackRules.rememberedSubtitle(candidates, trackMemory)) {
             is SubtitleMemory.Track -> {
                 Log.i("MoonriseSubs") { "picked last: ${m.id} (same file: ${trackMemory?.sameFile})" }
@@ -1113,14 +1134,12 @@ class PlayerModel(
         val lang = Languages.normalized(AppSettings.subtitleLanguage) ?: AppSettings.subtitleLanguage.lowercase()
         fun matches(o: SubtitleOption, l: String) = subtitleLanguage(o) == l
         if (on) {
-            val all = subtitleOptions.filter { matches(it, lang) && !TrackRules.isForced(it.title) }
-            val text = all.filter { !it.burnIn }
-            val pool = text.ifEmpty { all }
+            val pool = subtitleOptions.filter { matches(it, lang) && !TrackRules.isForced(it.title) }
             val o = pool.firstOrNull { TrackRules.isSDH(it.title) == AppSettings.preferSDHSubtitles } ?: pool.firstOrNull()
             if (o != null) { selectSubtitle(o); return }
         }
         // Forced subtitles translate the foreign dialogue for viewers of the audio's language.
-        val forced = subtitleOptions.filter { TrackRules.isForced(it.title) && !it.burnIn }
+        val forced = subtitleOptions.filter { TrackRules.isForced(it.title) }
         val audioLang = audioOptions.firstOrNull { it.id == selectedAudio }?.language?.let { Languages.normalized(it) }
         val o = if (audioLang != null) forced.firstOrNull { matches(it, audioLang) } else forced.firstOrNull()
         o?.let { selectSubtitle(it) }
@@ -1167,19 +1186,16 @@ class PlayerModel(
         windowLoader = null
         subtitleDoc = null
         subtitleText = null
+        pictureCues = null
+        pictureBitmaps.clear()
+        subtitlePictures = emptyList()
+        pictureCanvas = null
         restoreSubtitleDelay(o)
-        val previousBurn = burnIndex
-        burnIndex = null
-        if (o == null) {
-            if (previousBurn != null) reloadKeepingPosition()
+        if (o == null) return
+        if (o.picture) {
+            startPictureWindows(o)
             return
         }
-        if (o.burnIn) {
-            burnIndex = o.trackIndex
-            reloadKeepingPosition()
-            return
-        }
-        if (previousBurn != null) reloadKeepingPosition()
         val url = o.url ?: return
         val id = o.id
         subtitleJob = scope.launch {
@@ -1232,6 +1248,37 @@ class PlayerModel(
         return true
     }
 
+    /** A picture track: its windows at the playhead, each picture decoded once as it comes. */
+    private fun startPictureWindows(o: SubtitleOption) {
+        val id = o.id
+        val cues = PictureCues()
+        pictureCues = cues
+        val loader = SubtitleWindowLoader(
+            api = api, mediaId = mediaId, index = o.trackIndex, scope = scope,
+            fetchFull = { "" },
+            onCues = {},
+            onFallback = { if (selectedSubtitleId == id) showNotice("Couldn't load subtitles: the server doesn't serve this track") },
+            onWindow = win@{ w ->
+                if (selectedSubtitleId != id || pictureCues !== cues) return@win
+                val new = cues.add(w)
+                pictureCanvas = cues.canvas
+                if (new.isNotEmpty()) scope.launch {
+                    val decoded = withContext(Dispatchers.Default) {
+                        new.mapNotNull { c ->
+                            val bytes = runCatching { android.util.Base64.decode(c.png, android.util.Base64.DEFAULT) }.getOrNull() ?: return@mapNotNull null
+                            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()?.let { c.key to it }
+                        }
+                    }
+                    if (selectedSubtitleId != id || pictureCues !== cues) return@launch
+                    pictureBitmaps.putAll(decoded)
+                    updateSubtitle(currentTime)
+                }
+            },
+        )
+        windowLoader = loader
+        loader.advance(currentTime - subtitleDelay)
+    }
+
     private var capabilities: Set<String>? = null
 
     /** The thumbnails of the file a new session plays (kept when it is the same file). */
@@ -1265,6 +1312,14 @@ class PlayerModel(
 
     /** Shows the cue for `t` (moved by the delay). */
     private fun updateSubtitle(t: Double) {
+        pictureCues?.let { cues ->
+            val shown = cues.at(t - subtitleDelay).mapNotNull { c -> pictureBitmaps[c.key]?.let { ShownPicture(c, it) } }
+            if (shown.map { it.cue.key } != subtitlePictures.map { it.cue.key }) {
+                subtitlePictures = shown
+                Log.d("MoonriseOverlay") { "${fmt(t)} pictures ${shown.joinToString { "${it.cue.x},${it.cue.y} ${it.cue.width}x${it.cue.height}" }.ifEmpty { "-" }}" }
+            }
+            return
+        }
         val doc = subtitleDoc ?: return
         val text = doc.textAt(t - subtitleDelay)
         if (text != subtitleText) {
@@ -1401,7 +1456,7 @@ class PlayerModel(
     /** The context for Search Online: the title (an episode's show), and the id to search for. */
     val searchMediaId: String get() = mediaId
 
-    /** Restart the stream where it is (burn-in, quality, version). */
+    /** Restart the stream where it is (quality, version). */
     private fun reloadKeepingPosition() {
         if (recovering) return
         val t = currentTime
@@ -1488,8 +1543,8 @@ class PlayerModel(
     // A server stream dies when the server restarts (its sessions answer 410), and stalls when the
     // network goes. Signals: the stream failing, and no progress while it should play (6 s: ask the
     // session; 20 s, or 40 s before it was ever ready: recover anyway). Recovery waits until the
-    // server answers, opens a new session at the same position with the same audio, subtitles,
-    // burn-in and quality, and plays it, paused or playing as before. It gives up after a minute
+    // server answers, opens a new session at the same position with the same audio, subtitles
+    // and quality, and plays it, paused or playing as before. It gives up after a minute
     // without the server, or when the stream keeps failing.
 
     private fun watchdogTick(p: ExoPlayer) {
@@ -1714,6 +1769,8 @@ private class SubtitleWindowLoader(
     private val fetchFull: suspend () -> String,
     private val onCues: (List<app.moonrise.core.SubtitleCue>) -> Unit,
     private val onFallback: () -> Unit,
+    /** Every window as it comes (a picture track's images are taken from here). */
+    private val onWindow: (SubtitleWindow) -> Unit = {},
 ) {
     private val cues = linkedSetOf<app.moonrise.core.SubtitleCue>()
     private val loaded = mutableSetOf<Int>()
@@ -1751,8 +1808,9 @@ private class SubtitleWindowLoader(
                     val w = api.subtitleWindow(mediaId, index, k)
                     if (stopped) return@launch
                     loaded += w.window
+                    onWindow(w)
                     val before = cues.size
-                    w.cues.forEach { c -> cues += app.moonrise.core.SubtitleCue(c.start, c.end, SubtitleParser.stripTags(c.text).trim()) }
+                    w.cues.filter { it.image == null }.forEach { c -> cues += app.moonrise.core.SubtitleCue(c.start, c.end, SubtitleParser.stripTags(c.text).trim()) }
                     Log.i("MoonriseSubs") { "subtitle window $k: ${w.cues.size} cues (${w.source ?: "?"})${if (w.complete) ", track complete" else ""}" }
                     if (cues.size != before) onCues(cues.sortedWith(compareBy({ it.start }, { it.end })))
                     if (w.complete) loadFull()

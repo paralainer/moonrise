@@ -130,14 +130,14 @@ object AdminRules {
 
     /** The footer under Hardware (the iPhone's words, "your devices" for "Apple devices"). */
     fun hardwareFooter(s: SystemInfo): String = when (s.transcoding) {
-        "nvenc", "qsv", "vaapi" -> "Lower qualities, codecs your devices can't play, HDR for SDR screens and burned-in subtitles are made on the GPU. Everything else is streamed as it is."
-        "videotoolbox" -> "Lower qualities, codecs your devices can't play, HDR for SDR screens and burned-in subtitles are made by the Mac's media engine (VideoToolbox). Everything else is streamed as it is."
-        "v4l2" -> "Lower qualities (up to 1080p), codecs your devices can't play and burned-in subtitles are made by the board's video encoder. 4K and 10-bit HEVC titles are too much for it: they play as they are. Everything else is streamed as it is."
+        "nvenc", "qsv", "vaapi" -> "Lower qualities, codecs your devices can't play, and HDR for SDR screens are made on the GPU. Everything else is streamed as it is."
+        "videotoolbox" -> "Lower qualities, codecs your devices can't play, and HDR for SDR screens are made by the Mac's media engine (VideoToolbox). Everything else is streamed as it is."
+        "v4l2" -> "Lower qualities (up to 1080p) and codecs your devices can't play are made by the board's video encoder. 4K and 10-bit HEVC titles are too much for it: they play as they are. Everything else is streamed as it is."
         "cpu" -> "No GPU is passed to the server: transcodes run on the CPU (up to 1080p), which can be slow on a small machine. Everything your devices play directly is streamed as it is."
         "off" -> "Transcoding is switched off: titles stream as they are (audio is still converted when needed)."
         "unavailable" -> if (s.transcode == null) "Transcoding needs an NVIDIA GPU passed to the server (NVIDIA Container Toolkit). Without one, titles stream as they are: what your devices can play directly plays fine."
             else "Nothing on the server can transcode: titles stream as they are; what your devices can play directly plays fine."
-        else -> "Lower qualities, codecs your devices can't play, HDR for SDR screens and burned-in subtitles are made by the server's video hardware. Everything else is streamed as it is."
+        else -> "Lower qualities, codecs your devices can't play, and HDR for SDR screens are made by the server's video hardware. Everything else is streamed as it is."
     }
 
     val hardwareChoices = listOf("auto" to "Automatic", "nvidia" to "NVIDIA", "qsv" to "Intel Quick Sync", "vaapi" to "VA-API (Intel, AMD)", "cpu" to "CPU")
@@ -277,7 +277,7 @@ object AdminRules {
 
     fun sessionLine(s: ActivitySession): String {
         val how = when (s.method) {
-            "transcode" -> "Transcoding" + (s.variant?.let { " · $it" } ?: "") + (if (s.tonemap == true) " · HDR→SDR" else "") + (if (s.burn != null) " · subtitles burned in" else "")
+            "transcode" -> "Transcoding" + (s.variant?.let { " · $it" } ?: "") + (if (s.tonemap == true) " · HDR→SDR" else "")
             "convert" -> "Direct · audio converted"
             else -> "Direct"
         }

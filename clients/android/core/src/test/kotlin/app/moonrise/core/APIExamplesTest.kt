@@ -52,6 +52,7 @@ class APIExamplesTest {
         },
         "subtitles.json" to decodes(SubtitleList.serializer()) { assertTrue(it.subtitles.isNotEmpty()) },
         "subtitle-cues.json" to decodes(SubtitleWindow.serializer()),
+        "subtitle-picture-cues.json" to decodes(SubtitleWindow.serializer()),
         "subtitle-timing.json" to decodes(SubtitleTiming.serializer()),
         "subtitle-search.json" to decodes(SubtitleSearch.serializer()),
         // An uploaded track: the same answer as a fetched one (`fetchSubtitle`).

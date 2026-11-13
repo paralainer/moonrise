@@ -12,7 +12,7 @@ object ClientRules {
 
     /**
      * Media3's buffer budget is full: load anyway when the track playing next has run dry, as
-     * after an audio switch during a burned-in subtitle stream (without it, playback got stuck buffering).
+     * after an audio switch during a transcoded stream (without it, playback got stuck buffering).
      */
     fun keepLoading(bufferedDurationUs: Long): Boolean = bufferedDurationUs < STARVED_US
 

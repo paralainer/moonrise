@@ -269,17 +269,16 @@ class MoonriseApi(
     /**
      * Starts a playback session. `hdr`: the display shows HDR (else the server tone-maps HDR
      * titles to SDR). `start`: seconds. `version`: the file to play (else the viewer's chosen one,
-     * else the server's pick). `burn`: a bitmap subtitle track the server burns into the picture.
-     * `lossless`: the audio output takes more than 2 channels, so lossless multichannel tracks
+     * else the server's pick). `lossless`: the audio output takes more than 2 channels, so lossless multichannel tracks
      * (TrueHD, DTS-HD MA…) come as FLAC with every channel instead of E-AC-3 5.1 (servers that
      * don't know it ignore it). `dolbyVision`: the display shows Dolby Vision and a decoder for it
      * exists ([ClientRules.wantsDolbyVision]): `dv=1`, sent only with `hdr`.
      */
     suspend fun playback(
-        itemId: String, start: Double? = null, hdr: Boolean, version: String? = null, quality: Long? = null, burn: Int? = null,
+        itemId: String, start: Double? = null, hdr: Boolean, version: String? = null, quality: Long? = null,
         lossless: Boolean = false, dolbyVision: Boolean = false,
     ): Playback {
-        val q = mutableMapOf<String, String?>("hdr" to if (hdr) "1" else "0", "version" to version, "quality" to quality?.toString(), "burn" to burn?.toString())
+        val q = mutableMapOf<String, String?>("hdr" to if (hdr) "1" else "0", "version" to version, "quality" to quality?.toString())
         if (lossless) q["lossless"] = "1"
         if (hdr && dolbyVision) q["dv"] = "1"
         if (start != null && start > 1) q["start"] = String.format(java.util.Locale.ROOT, "%.3f", start)
