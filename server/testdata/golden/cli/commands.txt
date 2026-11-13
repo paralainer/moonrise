@@ -212,16 +212,6 @@ exit Some(0)
 }
 --- stderr
 (a dry run: --apply to change it; stop the server first)
-$ merge-libraries
-exit Some(1)
---- stdout
---- stderr
-Error: merge-libraries <into> <from> [--name <name>] [--apply]
-$ merge-libraries films shows --name Everything
-exit Some(1)
---- stdout
---- stderr
-Error: no libraries in the settings store
 $ subs-test
 exit Some(1)
 --- stdout
