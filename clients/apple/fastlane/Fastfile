@@ -1,6 +1,35 @@
-# Ad-hoc provisioning for over-the-air installs (scripts/ota.sh). Uses the same App Store Connect API key
-# as the other projects on the build Mac (ASC_KEY_ID / ASC_ISSUER_ID / ASC_KEY_PATH).
+# App Store Connect for the Apple apps, run on the build Mac by the scripts (scripts/release-apple.sh,
+# scripts/ota.sh). Auth is an App Store Connect API key from the environment: ASC_KEY_ID,
+# ASC_ISSUER_ID, ASC_KEY_PATH, APPLE_TEAM_ID (the file ASC_ENV in scripts/mac.env names, sourced on
+# the Mac). Nothing secret is in the repository.
+#
+# One App Store Connect app for every platform (universal purchase): iOS (iPhone and iPad), tvOS and
+# macOS, under the bundle id MOONRISE_BUNDLE_ID. Its extensions: <id>.widgets (iOS), <id>.topshelf
+# (tvOS). Platforms are named as the scripts name them: ios, tvos, mac.
+#
+# Lanes (fastlane <lane> key:value ...):
+#   register_ids                     the bundle ids (app and extensions) in the developer account, when missing
+#   list_bundle_ids                  read only: the account's bundle ids with "moonrise" in them
+#   store_profiles platform:P        App Store provisioning profiles for the app and P's extensions: made when
+#                                    there are none, installed on this Mac ("MOONRISE_PROFILE <id> <name>")
+#   app_record                       read only: "MOONRISE_APP=<id> <name>", or MOONRISE_APP=none
+#   next_build platform:P            read only: "MOONRISE_LATEST_BUILD=<n>", P's latest TestFlight build (0: none)
+#   upload platform:P path:FILE      the .ipa / .pkg to TestFlight (doesn't wait for processing)
+#   builds                           read only: the latest builds, their processing state, TestFlight groups
+#   store_status                     read only: versions, attached builds, texts, review notes, screenshots
+#   metadata platforms:ios,tvos,mac  texts, URLs, categories, copyright, App Review notes and contact
+#                                    (metadata/) on the editable versions
+#   screenshots platforms:...        the screenshots (screenshots/<ios|appleTV|mac>/en-US), replacing what is there
+#   review platforms:... [ios_build:N] [tvos_build:N] [mac_build:N]
+#                                    App Review notes and contact, and attach the build (that number, else the
+#                                    newest processed one). Never submits.
+#   submit platforms:... confirm:yes submit for App Review (manual release afterwards)
+#   team_testers                     internal TestFlight group "Team" with every build, holding the team's admins
+#   adhoc_profiles                   ad-hoc profiles for over-the-air installs (scripts/ota.sh)
+#   register_tv name:N udid:U        register a device for development profiles
 default_platform(:ios)
+
+FASTLANE_DIR = __dir__
 
 # The app's bundle id: MOONRISE_BUNDLE_ID (the scripts pass it), else Config/Signing.local.xcconfig,
 # else Config/Signing.xcconfig.
@@ -14,47 +43,240 @@ def moonrise_bundle_id
   UI.user_error!("No MOONRISE_BUNDLE_ID")
 end
 
+# The store version: MARKETING_VERSION in project.yml, which the script passes.
+def store_version
+  ENV["MOONRISE_VERSION"].to_s != "" ? ENV["MOONRISE_VERSION"] : UI.user_error!("No MOONRISE_VERSION")
+end
+
+# Per platform: App Store Connect's name, fastlane's upload / deliver name, sigh's name, the
+# extensions (bundle id suffixes) that need their own profile, and the screenshot folder.
+PLATFORMS = {
+  "ios" => { asc: "IOS", fastlane: "ios", sigh: "ios", extensions: [".widgets"], shots: "ios" },
+  "tvos" => { asc: "TV_OS", fastlane: "appletvos", sigh: "tvos", extensions: [".topshelf"], shots: "appleTV" },
+  "mac" => { asc: "MAC_OS", fastlane: "osx", sigh: "macos", extensions: [], shots: "mac" },
+}.freeze
+EXTENSION_NAMES = { ".widgets" => "Moonrise Widgets", ".topshelf" => "Moonrise Top Shelf" }.freeze
+
+def asc_key
+  app_store_connect_api_key(key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], key_filepath: ENV["ASC_KEY_PATH"])
+end
+
+def platform!(name)
+  PLATFORMS[name.to_s] || UI.user_error!("platform: ios, tvos or mac (not #{name.inspect})")
+end
+
+def platform_list(options)
+  list = (options[:platforms] || "ios,tvos,mac").to_s.split(",").map(&:strip)
+  list.each { |p| platform!(p) }
+  list
+end
+
+def app!
+  Spaceship::ConnectAPI::App.find(moonrise_bundle_id) ||
+    UI.user_error!("No App Store Connect app for #{moonrise_bundle_id} yet: it is made on the website (docs/publishing.md)")
+end
+
+def editable_version(app, platform)
+  app.get_edit_app_store_version(platform: platform!(platform)[:asc]) ||
+    UI.user_error!("#{platform}: no editable App Store version (in review, or the platform isn't added to the app yet)")
+end
+
+def text_file(*parts)
+  path = File.join(FASTLANE_DIR, *parts)
+  File.exist?(path) ? File.read(path).strip : nil
+end
+
+# The App Review contact comes from the environment (MOONRISE_REVIEW_FIRST_NAME, _LAST_NAME, _PHONE,
+# _EMAIL: the file REVIEW_ENV in scripts/mac.env names, on the Mac), never from the repository.
+def review_contact!
+  contact = { first_name: ENV["MOONRISE_REVIEW_FIRST_NAME"], last_name: ENV["MOONRISE_REVIEW_LAST_NAME"],
+              phone_number: ENV["MOONRISE_REVIEW_PHONE"], email_address: ENV["MOONRISE_REVIEW_EMAIL"] }
+  missing = contact.select { |_, v| v.to_s.empty? }.keys
+  UI.user_error!("No App Review contact (#{missing.join(', ')}): set REVIEW_ENV in scripts/mac.env") unless missing.empty?
+  contact
+end
+
+def review_notes
+  text_file("metadata", "review_information", "notes.txt") || UI.user_error!("No metadata/review_information/notes.txt")
+end
+
+def review_details(version, platform)
+  c = review_contact!
+  attributes = { contactFirstName: c[:first_name], contactLastName: c[:last_name], contactPhone: c[:phone_number],
+                 contactEmail: c[:email_address], demoAccountRequired: false, notes: review_notes }
+  detail = (version.fetch_app_store_review_detail rescue nil)
+  detail ? detail.update(attributes: attributes) : version.create_app_store_review_detail(attributes: attributes)
+  UI.success("#{platform}: App Review notes and contact set")
+end
+
 platform :ios do
-  lane :adhoc_profiles do
-    app_store_connect_api_key(
-      key_id: ENV["ASC_KEY_ID"],
-      issuer_id: ENV["ASC_ISSUER_ID"],
-      key_filepath: ENV["ASC_KEY_PATH"],
-    )
-    { moonrise_bundle_id => "Moonrise AdHoc", "#{moonrise_bundle_id}.widgets" => "Moonrise Widgets AdHoc" }.each do |id, name|
-      # Dev builds ran on a wildcard profile, so explicit App IDs may not exist yet.
-      unless Spaceship::ConnectAPI::BundleId.find(id)
-        Spaceship::ConnectAPI::BundleId.create(name: name.sub(" AdHoc", ""), platform: "IOS", identifier: id)
-        UI.message("Registered App ID #{id}")
+  lane :register_ids do
+    asc_key
+    app_id = moonrise_bundle_id
+    # The app runs on iOS, tvOS and macOS under one id, so its id is a universal one. The extensions
+    # are iOS-platform ids (the Apple TV's register under iOS too).
+    ids = { app_id => ["Moonrise", "UNIVERSAL"] }
+    EXTENSION_NAMES.each { |suffix, name| ids[app_id + suffix] = [name, "IOS"] }
+    ids.each do |id, (name, platform)|
+      if (b = Spaceship::ConnectAPI::BundleId.find(id))
+        puts "MOONRISE_BUNDLE #{id} exists (#{b.platform})"
+      else
+        Spaceship::ConnectAPI::BundleId.create(name: name, platform: platform, identifier: id)
+        puts "MOONRISE_BUNDLE #{id} registered (#{platform})"
       end
-      get_provisioning_profile(adhoc: true, app_identifier: id, provisioning_name: name,
-                               force: true, team_id: ENV["APPLE_TEAM_ID"], output_path: "build-ota/profiles")
     end
   end
-end
 
-platform :ios do
   lane :list_bundle_ids do
-    app_store_connect_api_key(key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], key_filepath: ENV["ASC_KEY_PATH"])
+    asc_key
     Spaceship::ConnectAPI::BundleId.all.select { |b| b.identifier.include?("moonrise") }.each do |b|
-      UI.message("BUNDLE #{b.identifier} platform=#{b.platform} name=#{b.name}")
+      puts "BUNDLE #{b.identifier} platform=#{b.platform} name=#{b.name}"
     end
   end
-end
 
-# TestFlight (scripts/testflight.sh). The App Store Connect app record for the bundle id
-# can only be created on the website; everything after that goes through the API key.
-platform :ios do
-  lane :moonrise_app do
-    app_store_connect_api_key(key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], key_filepath: ENV["ASC_KEY_PATH"])
+  lane :store_profiles do |options|
+    key = asc_key
+    p = platform!(options[:platform])
+    ([""] + p[:extensions]).each do |suffix|
+      id = moonrise_bundle_id + suffix
+      get_provisioning_profile(api_key: key, app_identifier: id, team_id: ENV["APPLE_TEAM_ID"], platform: p[:sigh],
+                               provisioning_name: "#{id} AppStore #{p[:sigh]}", ignore_profiles_with_different_name: true,
+                               output_path: File.expand_path("../../../build-release/profiles", FASTLANE_DIR))
+      puts "MOONRISE_PROFILE #{id} #{lane_context[SharedValues::SIGH_NAME]}"
+    end
+  end
+
+  lane :app_record do
+    asc_key
     app = Spaceship::ConnectAPI::App.find(moonrise_bundle_id)
-    UI.message(app ? "MOONRISE_APP=#{app.id} #{app.name}" : "MOONRISE_APP=none")
+    puts(app ? "MOONRISE_APP=#{app.id} #{app.name}" : "MOONRISE_APP=none")
+  end
+
+  lane :next_build do |options|
+    key = asc_key
+    p = platform!(options[:platform])
+    latest = latest_testflight_build_number(api_key: key, app_identifier: moonrise_bundle_id, platform: p[:fastlane],
+                                            initial_build_number: 0)
+    puts "MOONRISE_LATEST_BUILD=#{latest}"
+  end
+
+  lane :upload do |options|
+    key = asc_key
+    p = platform!(options[:platform])
+    path = File.expand_path(options[:path].to_s)
+    UI.user_error!("No file #{path}") unless File.exist?(path)
+    if p[:fastlane] == "osx"
+      upload_to_testflight(api_key: key, pkg: path, app_platform: "osx", skip_waiting_for_build_processing: true)
+    else
+      upload_to_testflight(api_key: key, ipa: path, app_platform: p[:fastlane], skip_waiting_for_build_processing: true)
+    end
+  end
+
+  lane :builds do
+    asc_key
+    app = app!
+    api = Spaceship::ConnectAPI.tunes_request_client
+    Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-uploadedDate", limit: 12).each do |b|
+      platform = (b.pre_release_version&.platform rescue nil) || "?"
+      internal = (api.get("v1/builds/#{b.id}/buildBetaDetail").body.dig("data", "attributes", "internalBuildState") rescue nil)
+      UI.message("build #{b.version} (#{b.app_version}) #{platform}: #{b.processing_state}" \
+                 "#{internal ? ", TestFlight #{internal}" : ''}, uploaded #{b.uploaded_date}")
+    end
+    (api.get("v1/apps/#{app.id}/betaGroups").body["data"] || []).each do |g|
+      a = g["attributes"]
+      UI.message("TestFlight group \"#{a['name']}\" (#{a['isInternalGroup'] ? 'internal' : 'external'}" \
+                 "#{a['hasAccessToAllBuilds'] ? ', every build' : ''})")
+    end
+  end
+
+  lane :store_status do
+    asc_key
+    app = app!
+    api = Spaceship::ConnectAPI.tunes_request_client
+    UI.message("app #{app.name} (#{app.id})")
+    (app.get_app_store_versions rescue []).each { |v| UI.message("version #{v.platform} #{v.version_string} #{v.app_store_state}") }
+    PLATFORMS.each do |name, p|
+      version = app.get_edit_app_store_version(platform: p[:asc])
+      next UI.message("#{name}: no editable version") unless version
+      build = (api.get("v1/appStoreVersions/#{version.id}/build").body["data"] rescue nil)
+      UI.message("#{name}: version #{version.version_string} #{version.app_store_state}, " \
+                 "build #{build ? build.dig('attributes', 'version') : 'none'}")
+      (version.get_app_store_version_localizations rescue []).each do |loc|
+        UI.message("  #{loc.locale}: description #{loc.description.to_s.length} chars, keywords #{loc.keywords.to_s.length}, " \
+                   "promo #{loc.promotional_text.to_s.length}, support #{loc.support_url.inspect}, marketing #{loc.marketing_url.inspect}")
+        (loc.get_app_screenshot_sets rescue []).each { |set| UI.message("  screenshots #{set.screenshot_display_type}: #{set.app_screenshots.count}") }
+      end
+      detail = (version.fetch_app_store_review_detail rescue nil)
+      UI.message("  review notes: #{detail ? "#{detail.notes.to_s.length} chars" : 'none'}")
+    end
+  end
+
+  lane :metadata do |options|
+    key = asc_key
+    app!
+    platform_list(options).each do |name|
+      deliver(api_key: key, app_identifier: moonrise_bundle_id, platform: platform!(name)[:fastlane], app_version: store_version,
+              metadata_path: File.join(FASTLANE_DIR, "metadata"), skip_binary_upload: true, skip_screenshots: true,
+              app_review_information: review_contact!.merge(demo_required: false, notes: review_notes),
+              submit_for_review: false, force: true, run_precheck_before_submit: false)
+      UI.success("#{name}: texts set on #{store_version}")
+    end
+  end
+
+  lane :screenshots do |options|
+    key = asc_key
+    app!
+    platform_list(options).each do |name|
+      p = platform!(name)
+      dir = File.join(FASTLANE_DIR, "screenshots", p[:shots])
+      next UI.important("#{name}: no screenshots in #{dir}") unless Dir.exist?(dir)
+      deliver(api_key: key, app_identifier: moonrise_bundle_id, platform: p[:fastlane], app_version: store_version,
+              skip_binary_upload: true, skip_metadata: true, skip_app_version_update: true, skip_screenshots: false,
+              screenshots_path: dir, overwrite_screenshots: true, submit_for_review: false, force: true,
+              run_precheck_before_submit: false)
+    end
+  end
+
+  lane :review do |options|
+    asc_key
+    app = app!
+    platform_list(options).each do |name|
+      version = editable_version(app, name)
+      review_details(version, name)
+      want = options[:"#{name}_build"].to_s
+      builds = Spaceship::ConnectAPI::Build.all(app_id: app.id, version: version.version_string, platform: version.platform,
+                                                processing_states: "VALID", sort: "-uploadedDate", limit: 20)
+      build = want.empty? ? builds.first : builds.find { |b| b.version.to_s == want }
+      UI.user_error!("#{name}: no processed build #{want} for #{version.version_string} yet") unless build
+      version.select_build(build_id: build.id)
+      UI.success("#{name} #{version.version_string}: build #{build.version} attached")
+    end
+  end
+
+  # Submitting is the owner's call: the script passes confirm:yes only when told to.
+  lane :submit do |options|
+    UI.user_error!("submit needs confirm:yes") unless options[:confirm].to_s == "yes"
+    key = asc_key
+    app = app!
+    platform_list(options).each do |name|
+      version = editable_version(app, name)
+      build = (Spaceship::ConnectAPI.tunes_request_client.get("v1/appStoreVersions/#{version.id}/build").body["data"] rescue nil)
+      number = build&.dig("attributes", "version").to_s
+      UI.user_error!("#{name}: no build attached (run review first)") if number.empty?
+      deliver(api_key: key, app_identifier: moonrise_bundle_id, platform: platform!(name)[:fastlane],
+              app_version: version.version_string, build_number: number, skip_binary_upload: true, skip_metadata: true,
+              skip_screenshots: true, skip_app_version_update: true, submit_for_review: true, automatic_release: false,
+              force: true, run_precheck_before_submit: false,
+              submission_information: { add_id_info_uses_idfa: false, export_compliance_uses_encryption: false,
+                                        content_rights_contains_third_party_content: false })
+      UI.success("#{name}: #{version.version_string} (#{number}) submitted for review")
+    end
   end
 
   # Internal group with every build, holding the team's users (internal testing: no review).
   lane :team_testers do
-    app_store_connect_api_key(key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], key_filepath: ENV["ASC_KEY_PATH"])
-    app = Spaceship::ConnectAPI::App.find(moonrise_bundle_id) || UI.user_error!("No App Store Connect app yet")
+    asc_key
+    app = app!
     group = app.get_beta_groups.find { |g| g.name == "Team" }
     unless group
       # (fastlane's create_beta_group sends a public-link setting Apple refuses for internal groups.)
@@ -74,12 +296,24 @@ platform :ios do
       end
     end
   end
-end
 
-# Register a device (e.g. the Apple TV) so development profiles include it.
-platform :ios do
+  # Ad-hoc provisioning for over-the-air installs (scripts/ota.sh).
+  lane :adhoc_profiles do
+    asc_key
+    { moonrise_bundle_id => "Moonrise AdHoc", "#{moonrise_bundle_id}.widgets" => "Moonrise Widgets AdHoc" }.each do |id, name|
+      # Dev builds ran on a wildcard profile, so explicit App IDs may not exist yet.
+      unless Spaceship::ConnectAPI::BundleId.find(id)
+        Spaceship::ConnectAPI::BundleId.create(name: name.sub(" AdHoc", ""), platform: "IOS", identifier: id)
+        UI.message("Registered App ID #{id}")
+      end
+      get_provisioning_profile(adhoc: true, app_identifier: id, provisioning_name: name,
+                               force: true, team_id: ENV["APPLE_TEAM_ID"], output_path: "build-ota/profiles")
+    end
+  end
+
+  # Register a device (e.g. the Apple TV) so development profiles include it.
   lane :register_tv do |options|
-    app_store_connect_api_key(key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], key_filepath: ENV["ASC_KEY_PATH"])
+    asc_key
     register_device(name: options[:name], udid: options[:udid], platform: "ios") # Apple TVs register under iOS
   end
 end

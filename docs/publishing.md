@@ -33,23 +33,60 @@ changes them to its own account.
 
 ## App Store
 
-1. App Store Connect → **New App**: platforms iOS + tvOS + macOS (one universal purchase record),
-   bundle id = `MOONRISE_BUNDLE_ID`, SKU, primary language. Name "Moonrise" may be taken: have an
-   alternative ("Moonrise Player", "Moonrise for Home Media").
-2. **Privacy**: App Privacy → "Data Not Collected" (see docs/privacy.md); privacy policy URL (a
-   page in the repository, e.g. docs/privacy.md on GitHub, is fine).
-3. **Age rating** questionnaire: no objectionable content in the app itself (a media player; user
-   content): typically 4+/9+ — note "unrestricted web access: no".
-4. **Export compliance**: `ITSAppUsesNonExemptEncryption = false` is already in Info.plist
-   (standard HTTPS only).
-5. **App Review information**: notes from docs/demo.md ("App Review notes"), no demo account needed.
-6. Screenshots (6.9" iPhone, 13" iPad, Apple TV, Mac) — the demo makes good ones; description,
-   keywords, support URL (GitHub issues), marketing URL (the project's page,
-   https://getmoonrise.dev/).
-7. `scripts/testflight.sh ios|tvos` uploads a build once the record exists (macOS: archive in
-   Xcode → Distribute). Internal TestFlight first, then submit.
-8. The server's setup page links to the App Store once there is a link:
-   `APP_STORE_URL` in `server/src/admin/claim.rs`, and the README's Status and Quick start.
+One App Store Connect app for iPhone, iPad, Apple TV and Mac (universal purchase) under your bundle
+id (`MOONRISE_BUNDLE_ID` in the git-ignored `clients/apple/Config/Signing.local.xcconfig`), with
+the extensions `<id>.widgets` (iOS) and `<id>.topshelf` (tvOS). `scripts/release-apple.sh` does
+everything the App Store Connect API allows, on the build Mac, with fastlane
+(`clients/apple/fastlane`); `scripts/release-apple.sh --help` lists its commands.
+
+**Once, on the build Mac** (`scripts/mac.env` names the files; nothing secret is in the repository):
+
+- Xcode, XcodeGen and fastlane (Homebrew), and in the login keychain the certificates
+  *Apple Distribution* and, for the Mac's installer package, *3rd Party Mac Developer Installer*.
+  `MAC_UNLOCK` unlocks the keychain over SSH.
+- An App Store Connect API key (App Manager or Admin): `ASC_ENV`, a file exporting `ASC_KEY_ID`,
+  `ASC_ISSUER_ID`, `ASC_KEY_PATH` (the .p8) and `APPLE_TEAM_ID`.
+- The App Review contact: `REVIEW_ENV`, a file exporting `MOONRISE_REVIEW_FIRST_NAME`,
+  `MOONRISE_REVIEW_LAST_NAME`, `MOONRISE_REVIEW_PHONE`, `MOONRISE_REVIEW_EMAIL`.
+
+**The first release:**
+
+1. `scripts/release-apple.sh ids` registers the three bundle ids. No App Groups or iCloud
+   containers are used; the Apple TV app and its Top Shelf share a keychain group, which needs
+   no registration.
+2. On the website (the API can't): App Store Connect → Apps → **New App**: iOS, then add tvOS and
+   macOS to the same app; the bundle id, a SKU, English (U.S.). "Moonrise" is taken on the store:
+   the listing's name is in `clients/apple/fastlane/metadata/en-US/name.txt`, and the name on the
+   device stays Moonrise.
+3. Also on the website: **App Privacy** → "Data Not Collected" (see [privacy.md](privacy.md)), the
+   **age rating** questionnaire (no objectionable content; unrestricted web access: no), the
+   category, and the privacy policy URL.
+4. `scripts/release-apple.sh testers` makes the internal TestFlight group "Team" (every build,
+   the team's admins; internal testing needs no review).
+5. `scripts/release-apple.sh ios` (then `tvos`, `mac`): the next build number (one past the
+   platform's latest on TestFlight), App Store profiles (made when missing, named
+   `<id> AppStore ios|tvos|macos`), a signed archive with TailscaleKit, and the exported .ipa or
+   .pkg. `scripts/release-apple.sh upload ios` has App Store Connect validate it, then uploads it;
+   `builds` shows TestFlight's processing (10 to 30 minutes).
+6. The listing: `scripts/release-apple.sh check-metadata`, then `metadata` (texts, URLs,
+   categories, copyright, App Review notes and contact) and `screenshots`
+   (`clients/apple/fastlane/screenshots`: `scripts/store-shots.sh` takes the iPhone, iPad and Apple
+   TV ones from the demo on simulators, so they show the Blender Foundation films credited in
+   [demo.md](demo.md); the Mac's, 2880 x 1800, are taken by hand on a Mac with
+   macOS 26, as `mac/en-US/*.jpg`). `status` shows what App Store Connect has.
+7. `scripts/release-apple.sh review` attaches the newest processed build to each platform's version
+   with the review notes; `submit ios,tvos,mac --yes` sends them to App Review, with manual release
+   once approved. Submitting is the maintainers' decision, never a script's default.
+
+**Lessons from App Review.** A new developer account can get a Mac "2.1 Information Needed"
+asking for a screen recording on a physical Mac with the latest macOS, and for the app's purpose,
+audience, services and regions: the review notes
+(`clients/apple/fastlane/metadata/review_information/notes.txt`) answer the questions up front,
+and a recording may still be asked for. Rejection texts appear only in App Store Connect on the web.
+
+Export compliance: `ITSAppUsesNonExemptEncryption = false` is in Info.plist (standard HTTPS only).
+The server's setup page links to the App Store once there is a link: `APP_STORE_URL` in
+`server/src/admin/claim.rs`, and the README's Status and Quick start.
 
 ## Google Play (Android TV and phone)
 

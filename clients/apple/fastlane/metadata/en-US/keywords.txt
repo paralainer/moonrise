@@ -1,0 +1,1 @@
+home media,media server,self-hosted,NAS,SMB,Tailscale,HEVC,HDR,MKV,offline,downloads,library,movies

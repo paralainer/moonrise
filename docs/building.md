@@ -141,7 +141,7 @@ All of them are listed in `clients/apple/Moonrise/Support/DebugSeams.swift`; rel
 Linux): `build.sh`, `sim.sh`/`tvsim.sh` (install and launch on simulators), `shot.sh`/`tap.sh`/
 `tvkey.sh` (screenshots and input through idb), `deploy-phone.sh`/`deploy-tv.sh`/`deploy-mac.sh`
 (signed installs; `deploy-android-tv.sh <tv-address>` builds the Android TV app in Docker and
-installs it over adb, see `clients/android/README.md`), `ota.sh` (an ad-hoc IPA), `testflight.sh`; `<script> --help` shows a script's
+installs it over adb, see `clients/android/README.md`), `ota.sh` (an ad-hoc IPA), `release-apple.sh` and `store-shots.sh` (App Store builds, TestFlight, the listing and its screenshots, see [publishing.md](publishing.md#app-store)); `<script> --help` shows a script's
 usage. They read the git-ignored `scripts/mac.env` (copy `scripts/mac.env.example`; at least `MAC`,
 the SSH target, or run with `MAC=user@host`) and the bundle id from `clients/apple/Config/`.
 
@@ -164,7 +164,7 @@ on **Moonrise Dev** instead: bundle id `<your id>.dev` (widgets `<id>.dev.widget
 `/Applications/Moonrise Dev.app`. It installs next to the app with its own sign-in, data, widgets
 and Top Shelf, so changes can be tried on a device without touching the app used for watching.
 `DEV=1 scripts/build.sh sim && DEV=1 scripts/sim.sh`, `DEV=1 scripts/deploy-tv.sh`, and so on.
-`scripts/ota.sh` and `scripts/testflight.sh` ship the app itself only and refuse `DEV=1`.
+`scripts/ota.sh` and `scripts/release-apple.sh` ship the app itself only and refuse `DEV=1`.
 On Android TV the same split is the build type: release is Moonrise, debug is Moonrise Dev
 (`clients/android/README.md`).
 
@@ -176,7 +176,7 @@ version, so you can tell which build a device has. Device ids in the environment
 
 A fresh clone needs only the build Mac: `scripts/build.sh sim`, `tvos` and `macos` are unsigned
 and use the placeholder bundle id. The signed steps (`build.sh ios|tv|mac`, the `deploy-*.sh`
-scripts, `ota.sh`, `testflight.sh`) stop with a message until `clients/apple/Config/Signing.local.xcconfig` has
+scripts, `ota.sh`, `release-apple.sh`) stop with a message until `clients/apple/Config/Signing.local.xcconfig` has
 your bundle id and team, and they also use an App Store Connect API key on the Mac (`ASC_ENV`,
 `ASC_KEY_PATH` in `mac.env`). `sim.sh`/`tvsim.sh` sign in to `MOONRISE_SERVER_URL` with
 `MOONRISE_CREDS_FILE` (or an executable, git-ignored `scripts/local/creds.sh`); with no server set,

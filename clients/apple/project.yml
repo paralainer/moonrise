@@ -45,6 +45,9 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(MOONRISE_BUNDLE_ID)
         PRODUCT_NAME: Moonrise
+        # App Store builds sign by hand with a profile per target (scripts/release-apple.sh passes
+        # MOONRISE_PROFILE_*); empty everywhere else, where signing is automatic.
+        PROVISIONING_PROFILE_SPECIFIER: $(MOONRISE_PROFILE_APP)
         TARGETED_DEVICE_FAMILY: "1,2,3"
         # AppIcon, or the Dev app's amber ones (scripts/dev-icons.sh) in DEV=1 builds.
         ASSETCATALOG_COMPILER_APPICON_NAME: $(MOONRISE_APP_ICON)
@@ -122,6 +125,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(MOONRISE_BUNDLE_ID).widgets
         PRODUCT_NAME: MoonriseWidgets
+        PROVISIONING_PROFILE_SPECIFIER: $(MOONRISE_PROFILE_WIDGETS)
         TARGETED_DEVICE_FAMILY: "1,2"
         SKIP_INSTALL: YES
     info:
@@ -145,6 +149,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(MOONRISE_BUNDLE_ID).topshelf
         PRODUCT_NAME: MoonriseTopShelf
+        PROVISIONING_PROFILE_SPECIFIER: $(MOONRISE_PROFILE_TOPSHELF)
         TARGETED_DEVICE_FAMILY: "3"
         SKIP_INSTALL: YES
         CODE_SIGN_ENTITLEMENTS: MoonriseTopShelf/MoonriseTopShelf.entitlements
