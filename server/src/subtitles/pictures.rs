@@ -363,6 +363,46 @@ mod tests {
         assert_eq!(cues[0].end, 70.0);
     }
 
+    /// A Matroska file with one PGS track (made by ffmpeg from a `.sup`): pictures at 0, 5 and
+    /// 10 s, each cleared 3 s later.
+    const PGS_MKV: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/media/pgs-only.mkv");
+
+    #[tokio::test]
+    async fn a_matroska_picture_track_read_and_decoded() {
+        let file = subx::File::open_async(PGS_MKV, true).await.unwrap();
+        let index = crate::media::mkv::index_with(&file).await.unwrap();
+        let want = subx::picture_want(&index, 0).expect("a PGS track");
+        // Window [0, 9) with nothing before it: the first two pictures and their clears.
+        let (blocks, method) = match subx::method(&index, std::slice::from_ref(&want)) {
+            subx::Method::Cues => (
+                subx::picture_blocks_by_cues(&file, &index, &want, 0.0, 9.0, None).await.unwrap().0,
+                "cues",
+            ),
+            subx::Method::Scan => (
+                subx::picture_blocks_by_scan(&file, &index, &want, 0.0, 9.0, &subs::yield_to_streams())
+                    .await
+                    .unwrap()
+                    .0,
+                "scan",
+            ),
+        };
+        assert_eq!(blocks.len(), 4, "{method}");
+        let private = index.tracks[0].codec_private.clone();
+        let d = bitmap::decode(Codec::Pgs, &private, &blocks);
+        assert_eq!(d.canvas, Some((1920, 1080)));
+        let times: Vec<(f64, Option<f64>)> = d.pictures.iter().map(|p| (p.start, p.end)).collect();
+        assert_eq!(times, [(0.0, Some(3.0)), (5.0, Some(8.0))]);
+        // Bottom centre, then the window's cues on the timeline.
+        assert!(
+            d.pictures[0].y > 900 && d.pictures[0].x > 700,
+            "{:?}",
+            (d.pictures[0].x, d.pictures[0].y)
+        );
+        let cues = cues_in(d.pictures, 0.0, 9.0, 0.0, 30.0).unwrap();
+        assert_eq!(cues.len(), 2);
+        assert_eq!((cues[1].start, cues[1].end), (5.0, 8.0));
+    }
+
     #[test]
     fn ffprobe_packets_and_extradata() {
         let json = br#"{"packets":[
