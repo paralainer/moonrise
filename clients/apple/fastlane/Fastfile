@@ -290,8 +290,11 @@ platform :ios do
               app_version: version.version_string, build_number: number, skip_binary_upload: true, skip_metadata: true,
               skip_screenshots: true, skip_app_version_update: true, submit_for_review: true, automatic_release: false,
               force: true, run_precheck_before_submit: false,
+              # The demo streams the Blender Foundation's films (Creative Commons, credited in the app):
+              # third-party content the app has the rights to show.
               submission_information: { add_id_info_uses_idfa: false, export_compliance_uses_encryption: false,
-                                        content_rights_contains_third_party_content: false })
+                                        content_rights_contains_third_party_content: true,
+                                        content_rights_has_rights: true })
       UI.success("#{name}: #{version.version_string} (#{number}) submitted for review")
     end
   end
