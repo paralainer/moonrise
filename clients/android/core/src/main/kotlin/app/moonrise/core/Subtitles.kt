@@ -361,6 +361,16 @@ object PictureSubtitles {
      * A placed picture moved into the view when the video fills it (cropped at the edges): a line at
      * the bottom of a 2.39:1 picture filling a phone stays on screen, not cut off with the video.
      */
+    /**
+     * How far up a picture in the lower half moves while the controls show, so it stays clear of
+     * them as text does (raised to `bandTop`, the bottom of raised text): 0 when it already is, or
+     * the controls are hidden (as `SubtitlePictures.Lift` in the Windows app).
+     */
+    fun lift(top: Float, height: Float, viewH: Float, controlsShown: Boolean, bandTop: Float): Float {
+        if (!controlsShown || bandTop <= 0f || top + height / 2f < viewH / 2f) return 0f
+        return maxOf(0f, top + height - (bandTop - 8f))
+    }
+
     fun keepInside(r: PictureRect, viewW: Float, viewH: Float): PictureRect {
         val x = if (r.width >= viewW) (viewW - r.width) / 2f else r.x.coerceIn(0f, viewW - r.width)
         val y = if (r.height >= viewH) (viewH - r.height) / 2f else r.y.coerceIn(0f, viewH - r.height)

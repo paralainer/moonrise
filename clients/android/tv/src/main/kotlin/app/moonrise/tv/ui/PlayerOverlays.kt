@@ -63,12 +63,15 @@ import app.moonrise.shared.AppSettings
 // recovery overlay.
 
 /** Text subtitles, drawn by the app: white with a shadow, or on a box; higher while the controls show. */
+/** The space below subtitles while the controls show (text, and picture subtitles in the lower half). */
+internal val RAISED_SUBTITLE_BOTTOM = 150.dp
+
 @Composable
 internal fun SubtitleOverlay(text: String?, raised: Boolean, height: Dp) {
     if (text.isNullOrBlank()) return
     val size = 23.sp * AppSettings.subtitleScale
     val box = AppSettings.subtitleBackground
-    Box(Modifier.fillMaxSize().padding(bottom = if (raised) 150.dp else maxOf(height * 0.06f, 23.dp), start = 60.dp, end = 60.dp), contentAlignment = Alignment.BottomCenter) {
+    Box(Modifier.fillMaxSize().padding(bottom = if (raised) RAISED_SUBTITLE_BOTTOM else maxOf(height * 0.06f, 23.dp), start = 60.dp, end = 60.dp), contentAlignment = Alignment.BottomCenter) {
         Text(
             text, color = Color.White, fontSize = size, lineHeight = size * 1.2f, textAlign = TextAlign.Center, fontWeight = FontWeight.Medium,
             style = if (box) TextStyle.Default else TextStyle(shadow = Shadow(Color.Black, blurRadius = 6f)),

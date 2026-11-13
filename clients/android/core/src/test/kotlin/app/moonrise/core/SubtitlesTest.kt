@@ -207,4 +207,16 @@ class SubtitlesTest {
         // Size not known yet: the whole view.
         assertEquals(PictureRect(0f, 0f, 1920f, 1080f), PictureSubtitles.videoRect(1920f, 1080f, null))
     }
+
+    /** Picture subtitles in the lower half went under the controls (the TV's dimming, the phone's scrubber). */
+    @Test
+    fun picturesClearTheControlsAsTextDoes() {
+        // Its bottom at 960, raised text ends at 920: up by 48 (8 clear of it), only while the controls show.
+        assertEquals(48f, PictureSubtitles.lift(900f, 60f, 1000f, controlsShown = true, bandTop = 920f), 0.01f)
+        assertEquals(0f, PictureSubtitles.lift(900f, 60f, 1000f, controlsShown = false, bandTop = 920f), 0.01f)
+        // Clear of them already.
+        assertEquals(0f, PictureSubtitles.lift(800f, 60f, 1000f, controlsShown = true, bandTop = 920f), 0.01f)
+        // In the upper half: stays.
+        assertEquals(0f, PictureSubtitles.lift(60f, 60f, 1000f, controlsShown = true, bandTop = 50f), 0.01f)
+    }
 }

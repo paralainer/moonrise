@@ -122,7 +122,7 @@ fun PlayerScreen(item: Item, start: Double?, version: String?, onExit: () -> Uni
         )
 
         // Picture subtitles where the track places them on the picture; text ones below.
-        Box(Modifier.fillMaxSize().pictureSubtitles(model))
+        Box(Modifier.fillMaxSize().pictureSubtitles(model, raisedBottom = { if (controlsVisible) RAISED_SUBTITLE_BOTTOM else null }))
         BoxWithConstraints(Modifier.fillMaxSize()) {
             SubtitleOverlay(model.subtitleText.takeIf { !model.recovering && model.failure == null }, raised = controlsVisible, height = maxHeight)
         }
