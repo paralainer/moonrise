@@ -2446,6 +2446,37 @@ mod tests {
     }
 
     #[test]
+    fn a_picture_subtitle_track_keeps_the_copy() {
+        // A PGS track, asked for as old apps did (`burn=`): the stream is the copied original,
+        // with the transcodes below it only as lower qualities; the track isn't in the stream
+        // (the app draws it from the subtitle windows).
+        let mut m = crate::media::transcode::tests::media(crate::media::transcode::tests::video("h264", 1920, 1080, 12_000_000, "SDR"));
+        m.subtitles = vec![crate::media::SubtitleTrack {
+            index: 2,
+            stream: Some(2),
+            text: false,
+            codec: "PGSSUB".into(),
+            name: "English".into(),
+            language: Some("en".into()),
+            forced: false,
+            default: false,
+            external: false,
+            source: "embedded",
+            url: None,
+            path: None,
+            file: None,
+            timing: None,
+        }];
+        let opts = StreamOptions::from(&[("burn".to_string(), "2".to_string())].into_iter().collect());
+        let v = m.video.clone().unwrap();
+        let ladder = crate::media::transcode::ladder_with(&crate::media::hwaccel::Hw::nvenc(), &v, opts.hdr_display, true);
+        assert_eq!(ladder[0].id, "copy");
+        assert!(ladder.iter().skip(1).all(|x| x.transcode && !x.id.contains("-b")), "{ladder:?}");
+        let out = master(&view(Arc::new(m), opts));
+        assert!(!out.contains("SUBTITLES"), "{out}");
+    }
+
+    #[test]
     fn lossless_audio_only_when_asked() {
         let mut m = crate::media::transcode::tests::media(crate::media::transcode::tests::video("hevc", 3840, 2160, 40_000_000, "PQ"));
         m.audio = vec![
