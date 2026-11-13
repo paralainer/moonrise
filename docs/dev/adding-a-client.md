@@ -49,8 +49,7 @@ All JSON is snake_case; lists are `{items, total}`; times are in seconds; dates 
    `reasons`, `pending` (ask again shortly). Play the master with the platform's HLS player. The
    stream URLs carry the session id instead of the token. Ask for extras only when the device
    can show them: `dv=1` (Dolby Vision display), `lossless=1` (FLAC in fMP4 and more than 2
-   output channels), `trick=1` (an I-frame playlist for the system scrubber), `burn=<index>` for
-   a bitmap subtitle. `DELETE /v1/s/{sid}` when playback ends. A `410` on a session URL means the
+   output channels), `trick=1` (an I-frame playlist for the system scrubber). `DELETE /v1/s/{sid}` when playback ends. A `410` on a session URL means the
    session is gone (server restart, expiry): ask `/playback` again at the current position.
 6. **Reporting.** `POST /v1/sessions/{sid}/start`, then `progress` every 10 s, then `stop`, with
    `{position, paused, audio, subtitle, credits}`. The server keeps the resume point and marks
@@ -63,7 +62,10 @@ All JSON is snake_case; lists are `{items, total}`; times are in seconds; dates 
    ([ADR 0013](../adr/0013-the-server-is-the-only-integration-point.md)).
 8. **Subtitles.** `GET /v1/items/{id}/subtitles` lists the tracks. Show text subtitles yourself
    from `…/subtitles/{index}/cues?window=<k>` (30 s windows, available before the whole track is
-   extracted) or the whole `.srt`; or select the WebVTT renditions in the HLS stream. Optional:
+   extracted) or the whole `.srt`; or select the WebVTT renditions in the HLS stream. Picture
+   tracks (`text: false`: PGS, DVD, DVB) come only through the same windows, as PNGs with their
+   place on the window's `canvas`: draw them over the video, the canvas scaled onto the picture
+   shown (width and height separately). Optional:
    timing (`…/timing`), OpenSubtitles search and fetch, upload. A version's tracks are addressed
    as `<item id>~<version>`.
 9. **Scrubbing thumbnails.** `GET /v1/items/{id}/trickplay` → sheets of `columns` × `rows`

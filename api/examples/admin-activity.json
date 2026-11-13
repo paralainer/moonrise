@@ -34,7 +34,6 @@
     },
     "sessions": [
       {
-        "burn": null,
         "duration": 150.000998,
         "idle_secs": 0,
         "item_id": "01exampleid000000000000002",
@@ -49,7 +48,6 @@
         "variant": "Original"
       },
       {
-        "burn": null,
         "duration": 150.000998,
         "episode_label": "S1E1",
         "idle_secs": 7,

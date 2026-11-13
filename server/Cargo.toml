@@ -1,6 +1,6 @@
 [package]
 name = "moonrise-server"
-version = "0.32.0"
+version = "0.33.0"
 edition = "2021"
 license = "AGPL-3.0-or-later"
 description = "Moonrise server: instant HLS, native audio renditions, WebVTT subtitles, and its own library (scan, TMDB metadata, artwork, search) on local folders or SMB shares."

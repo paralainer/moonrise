@@ -4,7 +4,8 @@ The server streams what an Apple device can play as it is (no re-encoding: H.264
 AAC/AC-3/E-AC-3 audio; other audio is converted on the CPU, which is cheap). It **transcodes
 video** only for: a lower quality (the player's quality menu, cellular), codecs Apple devices
 can't play (MPEG-4 Part 2/DivX, MPEG-2, VC-1, AV1 on older devices, 10-bit H.264), HDR on an SDR
-screen (tone-mapping), and picture subtitles (PGS, DVD) burned in.
+screen (tone-mapping). Picture subtitles (PGS, DVD, DVB) never need a transcode: the apps draw
+them over the video.
 
 ## What it uses
 

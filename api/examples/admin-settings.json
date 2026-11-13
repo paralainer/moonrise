@@ -2,10 +2,6 @@
   "summary": "A new server's settings (the name changed)",
   "value": {
     "fields": {
-      "features.burn": {
-        "apply": "live",
-        "source": "default"
-      },
       "features.convert": {
         "apply": "live",
         "source": "default"
@@ -232,7 +228,6 @@
     "restart_required": [],
     "settings": {
       "features": {
-        "burn": true,
         "convert": true,
         "credits_detect": true,
         "db": true,

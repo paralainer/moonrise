@@ -26,6 +26,16 @@ at 0.1.0); app changes that shipped together with a server release are listed un
 
 ### Added
 
+- Server 0.33.0 and all apps: picture subtitles (Blu-ray PGS, DVD, DVB) are drawn by the apps over
+  the video, which keeps playing as it is. Before, choosing one burned it into a full video
+  transcode: on a 2-core server about 7 s to the first segment instead of 0.05-0.09 s, and every
+  seek restarted the transcode. The server decodes the track a 30-second window at a time (only
+  the subtitle blocks around it are read; mkvmerge's compressed tracks too) and serves each
+  picture as a PNG with its place on the video, through the subtitle windows
+  (`…/subtitles/{index}/cues?window=k`, capability `subtitle-pictures`). Subtitle delay applies to
+  them. Only embedded tracks in these formats are listed. No migration.
+  ([ADR 0015](docs/adr/0015-picture-subtitles-drawn-by-the-apps.md))
+
 - `SECURITY.md` (private vulnerability reporting), `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1),
   issue and pull request templates, and this changelog.
 - `THIRD-PARTY-NOTICES.md`: the third-party code each part uses or bundles, and its licence.
@@ -41,8 +51,8 @@ at 0.1.0); app changes that shipped together with a server release are listed un
 - Licences: the server (`server/`) is now under the AGPL-3.0-or-later (`server/LICENSE`); the apps,
   the API description, tooling and docs are under the MPL-2.0 (`LICENSE`). They were GPL-3.0-or-later.
   The name and icon are covered by [TRADEMARKS.md](TRADEMARKS.md), not by the code licences.
-- Apps: the Subtitles menu no longer adds "(burned in)" to bitmap tracks' names. They are still
-  burned in by the server, and tracks picked earlier are still found.
+- Apps: the Subtitles menu no longer adds "(burned in)" to picture tracks' names, and tracks picked
+  earlier with those words are still found.
 - The GitHub Actions workflows run only when started by hand. The local check
   (`scripts/test-all.sh`) is the gate for changes; see `CONTRIBUTING.md`.
 - The Apple apps' project moved to `clients/apple/`, beside `clients/android/`. A git-ignored
@@ -52,6 +62,10 @@ at 0.1.0); app changes that shipped together with a server release are listed un
   player steps, sync); warnings and errors still go there. The Dev app logs as before.
 
 ### Removed
+
+- Server 0.33.0: burning picture subtitles into the video, with the `burn=` playback option, the
+  `burn-in` capability, the `burn` switch (`MOONRISE_DISABLE=burn` and a stored `features.burn` are
+  ignored) and the variants' `burn` field. The apps draw these subtitles themselves now.
 
 - Server 0.32.0: migration 021 drops the tables of the one-time import in an early version,
   `jf_map` and `jf_subtitles`, unused since 0.27.2 (identification reads `match_hints`, made from
