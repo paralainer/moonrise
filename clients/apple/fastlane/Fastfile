@@ -17,7 +17,9 @@
 #   upload platform:P path:FILE      the .ipa / .pkg to TestFlight (doesn't wait for processing)
 #   builds                           read only: the latest builds, their processing state, TestFlight groups
 #   store_status                     read only: versions, attached builds, texts, review notes, screenshots
-#   metadata platforms:ios,tvos,mac  texts, URLs, categories, copyright, and with a contact the App Review notes
+#   metadata platforms:ios,tvos,mac  texts, URLs, categories, copyright (metadata/); with a contact also the
+#                                    App Review notes (review_notes.txt, outside metadata/ so deliver
+#                                    doesn't send them without a contact, which Apple refuses)
 #                                    (metadata/) on the editable versions
 #   screenshots platforms:...        the screenshots (screenshots/<ios|appleTV|mac>/en-US), replacing what is there
 #   review platforms:... [ios_build:N] [tvos_build:N] [mac_build:N]
@@ -99,7 +101,7 @@ def review_contact!
 end
 
 def review_notes
-  text_file("metadata", "review_information", "notes.txt") || UI.user_error!("No metadata/review_information/notes.txt")
+  text_file("review_notes.txt") || UI.user_error!("No review_notes.txt")
 end
 
 def review_details(version, platform)

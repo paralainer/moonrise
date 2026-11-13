@@ -81,7 +81,7 @@ everything the App Store Connect API allows, on the build Mac, with fastlane
 **Lessons from App Review.** A new developer account can get a Mac "2.1 Information Needed"
 asking for a screen recording on a physical Mac with the latest macOS, and for the app's purpose,
 audience, services and regions: the review notes
-(`clients/apple/fastlane/metadata/review_information/notes.txt`) answer the questions up front,
+(`clients/apple/fastlane/review_notes.txt`) answer the questions up front,
 and a recording may still be asked for. Rejection texts appear only in App Store Connect on the web.
 
 Export compliance: `ITSAppUsesNonExemptEncryption = false` is in Info.plist (standard HTTPS only).
