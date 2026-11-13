@@ -5,14 +5,17 @@
 # without remote access over Tailscale (see scripts/xcodegen.sh).
 #
 # On a Mac: run it in the repository (builds into clients/apple/Vendor). Elsewhere: it runs on
-# TSKIT_MAC (or MAC) from scripts/mac.env over SSH, into ~/$MAC_DIR/clients/apple/Vendor there
+# TSKIT_MAC (the environment's, else scripts/mac.env's, else MAC) over SSH, into ~/$MAC_DIR/clients/apple/Vendor there
 # (MAC_DIR, default video-player).
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if [ "$(uname)" = Darwin ]; then
   RUN=(env "DEST=$HERE/clients/apple" bash -s)
 else
-  . "$HERE/scripts/common.sh"
+  # TSKIT_MAC and MAC_DIR given in the environment win over scripts/mac.env's (release-apple.sh
+  # passes its own Mac and folder).
+  ASKED=${TSKIT_MAC:-}; ASKED_DIR=${MAC_DIR:-}; . "$HERE/scripts/common.sh"
+  TSKIT_MAC=${ASKED:-$TSKIT_MAC}; MAC_DIR=${ASKED_DIR:-$MAC_DIR}
   need "$TSKIT_MAC" "no build Mac: copy scripts/mac.env.example to scripts/mac.env and set MAC (or TSKIT_MAC), or run this on a Mac"
   RUN=(ssh "$TSKIT_MAC" "DEST=\$HOME/$MAC_DIR/clients/apple bash -s")
 fi

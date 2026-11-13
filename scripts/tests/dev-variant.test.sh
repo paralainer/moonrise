@@ -41,18 +41,18 @@ esac
 exit 0
 STUB
 chmod +x "$SCRATCH/bin/"*
-unset DEV MAC FASTLANE_MAC
+unset DEV MAC FASTLANE_MAC RELEASE_MAC PERSONAL_MACS
 run() { rm -f "$LOG" "$SCRATCH/app-up"; touch "$LOG"; PATH="$SCRATCH/bin:$PATH" bash "$@" 2>&1; }
 
 for s in ota.sh "release-apple.sh ios"; do
-  out=$(DEV=1 MAC=nobody@example.invalid run "$C/scripts/"$s); rc=$?
+  out=$(DEV=1 MAC=nobody@example.invalid RELEASE_MAC=nobody@example.invalid run "$C/scripts/"$s); rc=$?
   expect_status 2 $rc "DEV=1 scripts/$s" "$out"
   expect_in "scripts/${s%% *} ships Moonrise itself, not the Dev app" "$out" "DEV=1 $s says why"
   [ -s "$LOG" ] && fail "DEV=1 $s reached the build Mac" "$(cat "$LOG")" || ok
   out=$(DEV=1 run "$C/scripts/"$s); rc=$?
   expect_status 2 $rc "DEV=1 scripts/$s with no build Mac set" "$out"
   # Without DEV=1, the same fresh clone goes on to the usual checks (here: no signing set up).
-  out=$(MAC=nobody@example.invalid run "$C/scripts/"$s); rc=$?
+  out=$(MAC=nobody@example.invalid RELEASE_MAC=nobody@example.invalid run "$C/scripts/"$s); rc=$?
   expect_status 1 $rc "scripts/$s without DEV=1, in a fresh clone" "$out"
   expect_not_in "not the Dev app" "$out" "$s without DEV=1 isn't refused"
   expect_in "signs the app" "$out" "$s without DEV=1 reaches the signing check"
