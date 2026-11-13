@@ -288,6 +288,9 @@ struct RootView: View {
         #if os(macOS)
         // As the iPad: the tabs at the top (in the toolbar), no sidebar; Library has its own.
         .tabViewStyle(.tabBarOnly)
+        // None while the player fills the screen, also under its sheets and back from another
+        // app (SwiftUI rebuilds the toolbar then; `MacWindow.applyToolbar` says the same to AppKit).
+        .toolbar(MacPlayerHub.shared.chrome.toolbarVisible ? .automatic : .hidden, for: .windowToolbar)
         #elseif os(iOS)
         // iPad: the floating tab bar at the top, no sidebar (it only repeated these four tabs and
         // took a quarter of the width; Library's own switches and filters are in the page).
