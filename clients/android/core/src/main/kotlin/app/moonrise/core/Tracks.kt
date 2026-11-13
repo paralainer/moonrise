@@ -121,13 +121,6 @@ object TrackRules {
         if (twins.size > 1) listOfNotNull(rows[i].second, "#${twins.indexOf(i) + 1}").joinToString(" · ") else rows[i].second
     }
 
-    /**
-     * A remembered subtitle's title. The menus used to add " (burned in)" to a bitmap track, and a
-     * choice kept from then may still say it: without those words it matches today's names.
-     */
-    fun rememberedSubtitleTitle(title: String?): String? =
-        title?.replace(" (burned in)", "")?.trim()?.ifEmpty { null }
-
     // ---------------------------------------------------------------- track memory
 
     private val extraAudio = Regex("(?i)comment|descri|narrat|director")
@@ -176,7 +169,7 @@ object TrackRules {
         }
         val forced = want.forced ?: false
         val pool = options.filter { subtitleLanguage(it.language, it.title) == lang && isForced(it.title) == forced }
-        val title = rememberedSubtitleTitle(want.title)
+        val title = want.title?.trim()?.ifEmpty { null }
         if (lang == null && (pool.isEmpty() || title == null)) return SubtitleMemory.Usual
         val sdh = want.sdh ?: false
         val ordered = pool
