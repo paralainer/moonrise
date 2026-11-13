@@ -201,10 +201,15 @@ platform :ios do
       build = (api.get("v1/appStoreVersions/#{version.id}/build").body["data"] rescue nil)
       UI.message("#{name}: version #{version.version_string} #{version.app_store_state}, " \
                  "build #{build ? build.dig('attributes', 'version') : 'none'}")
-      (version.get_app_store_version_localizations rescue []).each do |loc|
-        UI.message("  #{loc.locale}: description #{loc.description.to_s.length} chars, keywords #{loc.keywords.to_s.length}, " \
-                   "promo #{loc.promotional_text.to_s.length}, support #{loc.support_url.inspect}, marketing #{loc.marketing_url.inspect}")
-        (loc.get_app_screenshot_sets rescue []).each { |set| UI.message("  screenshots #{set.screenshot_display_type}: #{set.app_screenshots.count}") }
+      # (Read straight from the API: the models' attributes came back empty here.)
+      (api.get("v1/appStoreVersions/#{version.id}/appStoreVersionLocalizations").body["data"] || []).each do |loc|
+        a = loc["attributes"]
+        UI.message("  #{a['locale']}: description #{a['description'].to_s.length} chars, keywords #{a['keywords'].to_s.length}, " \
+                   "promo #{a['promotionalText'].to_s.length}, support #{a['supportUrl'].inspect}, marketing #{a['marketingUrl'].inspect}")
+        (api.get("v1/appStoreVersionLocalizations/#{loc['id']}/appScreenshotSets").body["data"] || []).each do |set|
+          n = (api.get("v1/appScreenshotSets/#{set['id']}/appScreenshots").body["data"] || []).size
+          UI.message("  screenshots #{set.dig('attributes', 'screenshotDisplayType')}: #{n}")
+        end
       end
       detail = (version.fetch_app_store_review_detail rescue nil)
       UI.message("  review notes: #{detail ? "#{detail.notes.to_s.length} chars" : 'none'}")
