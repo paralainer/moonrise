@@ -29,7 +29,9 @@
 #   register_tv name:N udid:U        register a device for development profiles
 default_platform(:ios)
 
-FASTLANE_DIR = __dir__
+# (fastlane evaluates this file with __dir__ ".", from the fastlane folder; deliver later runs
+# from its parent, so every path here is made absolute now.)
+FASTLANE_DIR = File.expand_path(__dir__ || ".")
 
 # The app's bundle id: MOONRISE_BUNDLE_ID (the scripts pass it), else Config/Signing.local.xcconfig,
 # else Config/Signing.xcconfig.
