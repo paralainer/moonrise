@@ -1,6 +1,6 @@
 //! Video that is re-encoded on the GPU (NVENC): the quality ladder, codecs that can't be copied
 //! into HLS (MPEG-4 Part 2, MPEG-2, AV1, VC-1, 10-bit H.264…), HDR tone-mapped to SDR for
-//! displays without HDR, and bitmap subtitles (PGS, DVD) burned in.
+//! displays without HDR.
 //!
 //! **One timeline for every variant.** A transcoded variant has exactly the copied original's
 //! segments: each segment starts with an IDR frame at the same source keyframe
@@ -75,8 +75,6 @@ const TOL: f64 = 0.02;
 /// Keyframes are forced this much before each boundary: the first frame at or after the time
 /// becomes the IDR, so tiny differences between the index and the stream don't matter.
 const FORCE_EARLY: f64 = 0.005;
-/// Burned-in subtitles are read from this long before a run's start.
-const SUB_PREROLL: f64 = 20.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -108,10 +106,6 @@ pub struct Variant {
     pub transcode: bool,
     /// HDR mapped to SDR.
     pub tonemap: bool,
-    /// The bitmap subtitle burned in (its track index).
-    pub burn: Option<i64>,
-    #[serde(skip)]
-    pub burn_stream: Option<i64>,
     #[serde(skip)]
     pub codecs_attr: String,
     #[serde(skip)]
@@ -137,10 +131,9 @@ const PRESETS: [(i64, i64, i64, &str); 5] = [
     (1_500_000, 854, 480, "480p · 1.5 Mbps"),
 ];
 
-/// What a title can be played as, best first. `burn`: (track index, file stream) of a
-/// bitmap subtitle to burn in. `transcode`: the GPU path is on.
+/// What a title can be played as, best first. `transcode`: the GPU path is on.
 ///
-/// - The copied original, unless it can't be copied, a subtitle is burned in, or it is HDR for
+/// - The copied original, unless it can't be copied, or it is HDR for
 ///   a display without HDR (then the original is a tone-mapped transcode; with transcoding off
 ///   the copy is still offered, unlabelled, as before).
 /// - Otherwise "Original" is a transcode at the source's size (at most 4K) and a bitrate that
@@ -148,18 +141,17 @@ const PRESETS: [(i64, i64, i64, &str); 5] = [
 /// - Then the presets below 90 % of the source's bitrate (as the app lists them), fitted into
 ///   their box, never upscaled.
 ///
-/// HDR is kept (HEVC Main 10) for HDR displays, else tone-mapped (H.264), and always
-/// tone-mapped when burning in (the overlay is 8-bit). SDR is H.264.
-pub fn ladder(v: &VideoTrack, hdr_display: bool, burn: Option<(i64, i64)>, transcode: bool) -> Vec<Variant> {
-    ladder_with(hwaccel::current(), v, hdr_display, burn, transcode)
+/// HDR is kept (HEVC Main 10) for HDR displays, else tone-mapped (H.264). SDR is H.264.
+pub fn ladder(v: &VideoTrack, hdr_display: bool, transcode: bool) -> Vec<Variant> {
+    ladder_with(hwaccel::current(), v, hdr_display, transcode)
 }
 
 /// [`ladder`] for the backend `hw`: without an HEVC Main 10 encoder HDR is tone-mapped in every
 /// transcode (the copy keeps it), and the CPU makes at most 1080p.
-pub fn ladder_with(hw: &Hw, v: &VideoTrack, hdr_display: bool, burn: Option<(i64, i64)>, transcode: bool) -> Vec<Variant> {
+pub fn ladder_with(hw: &Hw, v: &VideoTrack, hdr_display: bool, transcode: bool) -> Vec<Variant> {
     let hdr = v.hdr();
     // The screen shows HDR (the copy keeps it); the transcodes keep it too when they can.
-    let display_hdr = hdr && hdr_display && burn.is_none();
+    let display_hdr = hdr && hdr_display;
     let keep_hdr = display_hdr && hw.hevc10;
     let tonemap = hdr && !keep_hdr;
     // Nothing transcodes what this hardware can't keep up with, or HDR it can't tone-map.
@@ -170,7 +162,7 @@ pub fn ladder_with(hw: &Hw, v: &VideoTrack, hdr_display: bool, burn: Option<(i64
         && v.height > 0
         && hw.too_heavy(v).is_none()
         && (!tonemap || hw.can_tonemap());
-    let copy_ok = v.copyable() && burn.is_none() && !(hdr && !display_hdr && can_transcode);
+    let copy_ok = v.copyable() && !(hdr && !display_hdr && can_transcode);
     let mut out = Vec::new();
     if copy_ok {
         out.push(Variant {
@@ -185,8 +177,6 @@ pub fn ladder_with(hw: &Hw, v: &VideoTrack, hdr_display: bool, burn: Option<(i64
             range: v.range,
             transcode: false,
             tonemap: false,
-            burn: None,
-            burn_stream: None,
             codecs_attr: v.codecs_attr.clone().unwrap_or_default(),
             enc: None,
             level: String::new(),
@@ -229,9 +219,6 @@ pub fn ladder_with(hw: &Hw, v: &VideoTrack, hdr_display: bool, burn: Option<(i64
         if keep_hdr {
             let _ = write!(id, "-{}", range.to_ascii_lowercase());
         }
-        if let Some((_, s)) = burn {
-            let _ = write!(id, "-b{s}");
-        }
         Variant {
             id,
             label: label.to_string(),
@@ -244,8 +231,6 @@ pub fn ladder_with(hw: &Hw, v: &VideoTrack, hdr_display: bool, burn: Option<(i64
             range,
             transcode: true,
             tonemap,
-            burn: burn.map(|b| b.0),
-            burn_stream: burn.map(|b| b.1),
             codecs_attr,
             enc: Some(enc),
             level,
@@ -402,13 +387,13 @@ pub fn video_args_with(hw: &Hw, media: &Media, variant: &Variant, n: usize, prog
     let mut a: Vec<String> = ["-nostdin", "-hide_banner", "-nostats", "-v", "error"].map(String::from).to_vec();
     a.extend(hwaccel::init_args(hw));
     push_decoder(&mut a, hw, v, gpu);
-    let sub_input = push_inputs(&mut a, media, variant, n);
+    push_inputs(&mut a, media, n);
 
     let trc = if v.range == "HLG" { "arib-std-b67" } else { "smpte2084" };
     if hw.backend == Backend::Nvenc {
-        push_picture_nvenc(&mut a, v, variant, enc, gpu, trc, sub_input);
+        push_picture_nvenc(&mut a, v, variant, enc, gpu, trc);
     } else {
-        push_picture(&mut a, hw, v, variant, gpu, trc, sub_input);
+        push_picture(&mut a, hw, v, variant, gpu, trc);
     }
     push_encoder(&mut a, hw, variant, enc);
     push_keyframes(&mut a, hw, media, v, n, progressive);
@@ -447,9 +432,8 @@ fn push_decoder(a: &mut Vec<String>, hw: &Hw, v: &VideoTrack, gpu: bool) {
     }
 }
 
-/// The input (seeking to segment `n`), and the second input that burned-in subtitles come from.
-/// Answers the subtitles' input.
-fn push_inputs(a: &mut Vec<String>, media: &Media, variant: &Variant, n: usize) -> usize {
+/// The input, seeking to segment `n`.
+fn push_inputs(a: &mut Vec<String>, media: &Media, n: usize) {
     a.push("-noaccurate_seek".into());
     let start = media.boundaries[n];
     if n > 0 {
@@ -459,31 +443,16 @@ fn push_inputs(a: &mut Vec<String>, media: &Media, variant: &Variant, n: usize) 
         ]);
     }
     a.extend(media.source.input_args());
-    let burn = variant.burn_stream;
-    // Subtitles from a second reading of the file, from earlier on: a picture already on screen
-    // at the run's first boundary is drawn too (as a run that started earlier draws it).
-    let sub_input = match burn {
-        Some(_) if n > 0 => {
-            a.extend(["-ss".into(), format!("{:.3}", media.input_seek(start - SUB_PREROLL))]);
-            a.extend(media.source.input_args());
-            1
-        }
-        _ => 0,
-    };
     a.push("-copyts".into());
-    sub_input
 }
 
-/// NVENC: the picture's filters on the GPU, subtitles laid over there too.
-fn push_picture_nvenc(a: &mut Vec<String>, v: &VideoTrack, variant: &Variant, enc: Codec, gpu: bool, trc: &str, sub_input: usize) {
+/// NVENC: the picture's filters on the GPU.
+fn push_picture_nvenc(a: &mut Vec<String>, v: &VideoTrack, variant: &Variant, enc: Codec, gpu: bool, trc: &str) {
     let (w, h) = (variant.width, variant.height);
-    let burn = variant.burn_stream;
     // The picture: scaled (and tone-mapped) to the variant's size and pixel format.
-    let out_fmt = match (enc, burn.is_some()) {
-        (Codec::Hevc, _) => "p010le",
-        // overlay_cuda takes planar 4:2:0 under a yuva420p overlay.
-        (Codec::H264, true) => "yuv420p",
-        (Codec::H264, false) => "nv12",
+    let out_fmt = match enc {
+        Codec::Hevc => "p010le",
+        Codec::H264 => "nv12",
     };
     let tonemap = format!(
         "setparams=color_primaries=bt2020:color_trc={trc}:colorspace=bt2020nc,scale_cuda=w={w}:h={h}:format=p010le,\
@@ -509,52 +478,19 @@ fn push_picture_nvenc(a: &mut Vec<String>, v: &VideoTrack, variant: &Variant, en
     } else {
         format!("scale=w={w}:h={h}:flags=bicubic,format={out_fmt},hwupload_cuda")
     };
-    match burn {
-        None => a.extend(["-map".into(), format!("0:{}", v.stream), "-vf".into(), main]),
-        Some(s) => {
-            // The subtitle track becomes a picture stream (sub2video), scaled to the frame and
-            // laid over it on the GPU.
-            let graph = format!(
-                "[0:{}]{main}[main];[{sub_input}:{s}]scale=w={w}:h={h}:flags=bicubic,format=yuva420p,hwupload_cuda[sub];\
-                 [main][sub]overlay_cuda=eof_action=pass:repeatlast=0[out]",
-                v.stream
-            );
-            a.extend(["-filter_complex".into(), graph, "-map".into(), "[out]".into()]);
-        }
-    }
+    a.extend(["-map".into(), format!("0:{}", v.stream), "-vf".into(), main]);
 }
 
-/// The other backends: the picture's filters, subtitles laid over on the CPU.
-fn push_picture(a: &mut Vec<String>, hw: &Hw, v: &VideoTrack, variant: &Variant, gpu: bool, trc: &str, sub_input: usize) {
-    let (w, h) = (variant.width, variant.height);
-    let burn = variant.burn_stream;
+/// The other backends: the picture's filters.
+fn push_picture(a: &mut Vec<String>, hw: &Hw, v: &VideoTrack, variant: &Variant, gpu: bool, trc: &str) {
     // QSV, VA-API, VideoToolbox, V4L2, CPU: the picture on the device (the CPU's for libx264
-    // and V4L2); burned-in
-    // subtitles are laid over on the CPU (a frame's download and upload are cheap next to
-    // decoding and encoding it).
-    match burn {
-        None => a.extend([
-            "-map".into(),
-            format!("0:{}", v.stream),
-            "-vf".into(),
-            picture_chain(hw, v, variant, gpu, trc, false),
-        ]),
-        Some(s) => {
-            let main = picture_chain(hw, v, variant, gpu, trc, true);
-            // libx264, VideoToolbox and V4L2 take CPU frames as they are.
-            let up = if matches!(hw.backend, Backend::Cpu | Backend::VideoToolbox | Backend::V4l2) {
-                String::new()
-            } else {
-                format!(",{}", hwaccel::upload(hw))
-            };
-            let graph = format!(
-                "[0:{}]{main}[main];[{sub_input}:{s}]scale=w={w}:h={h}:flags=bicubic,format=yuva420p[sub];\
-                 [main][sub]overlay=eof_action=pass:repeatlast=0:format=yuv420,format=nv12{up}[out]",
-                v.stream
-            );
-            a.extend(["-filter_complex".into(), graph, "-map".into(), "[out]".into()]);
-        }
-    }
+    // and V4L2).
+    a.extend([
+        "-map".into(),
+        format!("0:{}", v.stream),
+        "-vf".into(),
+        picture_chain(hw, v, variant, gpu, trc),
+    ]);
 }
 
 /// The encoder, its level, preset and rate control.
@@ -730,7 +666,7 @@ fn cpu_tonemap(trc: &str) -> String {
 /// The picture's filters for QSV, VA-API and the CPU: scaled (and tone-mapped) to the variant.
 /// The frames end on the device for the hardware encoders, in CPU memory for libx264 or when
 /// `on_cpu` (to lay subtitles over them).
-fn picture_chain(hw: &Hw, v: &VideoTrack, variant: &Variant, gpu: bool, trc: &str, on_cpu: bool) -> String {
+fn picture_chain(hw: &Hw, v: &VideoTrack, variant: &Variant, gpu: bool, trc: &str) -> String {
     let (w, h) = (variant.width, variant.height);
     let hevc = variant.enc == Some(Codec::Hevc);
     let ten_bit = v.pix_fmt.contains("10");
@@ -745,7 +681,7 @@ fn picture_chain(hw: &Hw, v: &VideoTrack, variant: &Variant, gpu: bool, trc: &st
         };
     }
     if hw.backend == Backend::VideoToolbox {
-        return vt_chain(hw, v, variant, gpu, trc, on_cpu);
+        return vt_chain(hw, v, variant, gpu, trc);
     }
     let qsv = hw.backend == Backend::Qsv;
     // Frames on the device: decoded there (QSV maps VA-API frames), else uploaded.
@@ -775,37 +711,26 @@ fn picture_chain(hw: &Hw, v: &VideoTrack, variant: &Variant, gpu: bool, trc: &st
         } else {
             format!("{},tonemap_vaapi=format=nv12:p=bt709:t=bt709:m=bt709", scale("p010"))
         };
-        let mut c = format!("{setp},{src}{tm}");
-        if on_cpu {
-            let _ = write!(c, ",{}", download("nv12"));
-        }
-        c
+        format!("{setp},{src}{tm}")
     } else if variant.tonemap {
         // Tone-mapped on the CPU: scaled on the device, down, mapped, up again.
-        let mut c = if gpu {
+        let c = if gpu {
             format!("{src}{},{},{}", scale("p010"), download("p010le"), cpu_tonemap(trc))
         } else {
             format!("scale=w={w}:h={h}:flags=bicubic,{}", cpu_tonemap(trc))
         };
-        if !on_cpu {
-            let _ = write!(c, ",format=nv12,{up}");
-        }
-        c
+        format!("{c},format=nv12,{up}")
     } else {
         let fmt = if hevc { "p010" } else { "nv12" };
-        let mut c = format!("{src}{}", scale(fmt));
-        if on_cpu {
-            let _ = write!(c, ",{}", download(if hevc { "p010le" } else { "nv12" }));
-        }
-        c
+        format!("{src}{}", scale(fmt))
     };
     chain
 }
 
 /// The picture's filters for VideoToolbox: on VideoToolbox frames (decoded there, else uploaded),
 /// scaled and tone-mapped by `scale_vt`; the encoder takes them as they are, or from CPU memory
-/// when `on_cpu` (subtitles laid over) or when tone-mapping falls back to the CPU.
-fn vt_chain(hw: &Hw, v: &VideoTrack, variant: &Variant, gpu: bool, trc: &str, on_cpu: bool) -> String {
+/// when tone-mapping falls back to the CPU.
+fn vt_chain(hw: &Hw, v: &VideoTrack, variant: &Variant, gpu: bool, trc: &str) -> String {
     let (w, h) = (variant.width, variant.height);
     let ten_bit = v.pix_fmt.contains("10");
     let hevc = variant.enc == Some(Codec::Hevc);
@@ -835,7 +760,7 @@ fn vt_chain(hw: &Hw, v: &VideoTrack, variant: &Variant, gpu: bool, trc: &str, on
     } else {
         format!("format={dev_fmt},{},", hwaccel::upload(hw))
     };
-    let mut c = if variant.tonemap {
+    if variant.tonemap {
         // Tagged as what it is first: the pixel transfer maps from the tags.
         let setp = if gpu {
             String::new()
@@ -845,11 +770,7 @@ fn vt_chain(hw: &Hw, v: &VideoTrack, variant: &Variant, gpu: bool, trc: &str, on
         format!("{setp}{src}scale_vt=w={w}:h={h}:{}", hwaccel::VT_TO_SDR)
     } else {
         format!("{src}scale_vt=w={w}:h={h}")
-    };
-    if on_cpu {
-        let _ = write!(c, ",hwdownload,format={dev_fmt}");
     }
-    c
 }
 
 #[derive(Clone, Debug)]
@@ -1494,7 +1415,7 @@ pub(crate) mod tests {
     #[test]
     fn ladder_for_a_copyable_source() {
         let v = video("h264", 1920, 1080, 12_000_000, "SDR");
-        let l = ladder(&v, true, None, true);
+        let l = ladder(&v, true, true);
         assert_eq!(
             ids(&l),
             ["copy", "h264-1920x1080-10000k", "h264-1280x720-4000k", "h264-854x480-1500k"]
@@ -1507,23 +1428,23 @@ pub(crate) mod tests {
         assert_eq!(select(&l, Some(4_000_000)), 2);
         assert_eq!(select(&l, Some(1_000_000)), 3);
         // Transcoding off: the copy only.
-        assert_eq!(ids(&ladder(&v, true, None, false)), ["copy"]);
+        assert_eq!(ids(&ladder(&v, true, false)), ["copy"]);
     }
 
     #[test]
     fn ladder_for_sources_that_must_be_transcoded() {
         // A small DivX: the original is re-encoded at a floor bitrate; no presets below it.
         let v = video("mpeg4", 656, 368, 1_200_000, "SDR");
-        let l = ladder(&v, true, None, true);
+        let l = ladder(&v, true, true);
         assert_eq!(ids(&l), ["h264-656x368-2000k"]);
         assert_eq!(l[0].label, "Original");
         assert_eq!(select(&l, Some(1_500_000)), 0);
-        assert!(ladder(&v, true, None, false).is_empty());
+        assert!(ladder(&v, true, false).is_empty());
         // Anamorphic DVD: square pixels.
         let mut dvd = video("mpeg2video", 720, 576, 6_000_000, "SDR");
         dvd.dar = 16.0 / 9.0;
         assert_eq!(
-            ids(&ladder(&dvd, true, None, true)),
+            ids(&ladder(&dvd, true, true)),
             ["h264-1024x576-6000k", "h264-1024x576-4000k", "h264-854x480-1500k"]
         );
     }
@@ -1532,13 +1453,13 @@ pub(crate) mod tests {
     fn ladder_for_hdr() {
         let v = video("hevc", 3840, 2160, 60_000_000, "PQ");
         // An HDR display: the copy, then HEVC Main 10 keeping HDR.
-        let l = ladder(&v, true, None, true);
+        let l = ladder(&v, true, true);
         assert_eq!(l[0].id, "copy");
         assert_eq!(l[1].id, "hevc-3840x2160-40000k-pq");
         assert_eq!(l[1].codecs_attr, "hvc1.2.4.L153.B0");
         assert_eq!(l[1].range, "PQ");
         // No HDR: everything tone-mapped to SDR H.264, the original too.
-        let l = ladder(&v, false, None, true);
+        let l = ladder(&v, false, true);
         assert_eq!(
             ids(&l),
             [
@@ -1552,11 +1473,7 @@ pub(crate) mod tests {
         assert!(l.iter().all(|v| v.tonemap && v.range == "SDR"));
         assert_eq!(l[0].codecs_attr, "avc1.640033"); // 5.1
                                                      // Transcoding off: the copy as before (the app decides).
-        assert_eq!(ids(&ladder(&v, false, None, false)), ["copy"]);
-        // Burned-in subtitles are tone-mapped even for HDR displays.
-        let l = ladder(&v, true, Some((5, 3)), true);
-        assert_eq!(l[0].id, "h264-3840x2160-40000k-tm-b3");
-        assert_eq!(l[0].burn, Some(5));
+        assert_eq!(ids(&ladder(&v, false, false)), ["copy"]);
     }
 
     #[test]
@@ -1611,21 +1528,16 @@ pub(crate) mod tests {
         m.boundaries = vec![0.0, 7.44];
         m.seek_offsets = vec![-1.0, -1.0];
         m.start_time = 1.44;
-        let l = ladder(&v, true, None, true);
+        let l = ladder(&v, true, true);
         let a = ffmpeg_args(&m, &l[0], 1).unwrap().join(" ");
         assert!(a.contains("-noaccurate_seek -ss 5.000 -i /m/a.ts -copyts"), "{a}");
-        // Burned-in subtitles read from the same clock.
-        m.boundaries = vec![0.0, 26.44];
-        let l = ladder(&v, true, Some((4, 3)), true);
-        let a = ffmpeg_args(&m, &l[0], 1).unwrap().join(" ");
-        assert!(a.contains("-ss 24.000 -i /m/a.ts -ss 5.000 -i /m/a.ts -copyts"), "{a}");
     }
 
     #[test]
     fn command_lines() {
         let v = video("h264", 1920, 1080, 12_000_000, "SDR");
         let m = media(v.clone());
-        let l = ladder(&v, true, None, true);
+        let l = ladder(&v, true, true);
         let a = ffmpeg_args(&m, &l[2], 1).unwrap().join(" ");
         assert!(
             a.contains("-hwaccel cuda -hwaccel_device cu -hwaccel_output_format cuda -noaccurate_seek -ss 11.919 -i /m/a.mkv -copyts"),
@@ -1646,36 +1558,20 @@ pub(crate) mod tests {
         assert!(!ffmpeg_args(&m, &l[2], 0).unwrap().contains(&"-ss".to_string()));
         assert!(ffmpeg_args(&m, &l[0], 0).is_err(), "the copy isn't transcoded");
 
-        // Burn-in: the subtitles from a second input, 20 s earlier.
-        let l = ladder(&v, true, Some((4, 3)), true);
-        let a = ffmpeg_args(&m, &l[0], 2).unwrap().join(" ");
-        assert!(a.contains("-ss 26.556 -i /m/a.mkv -ss 6.506 -i /m/a.mkv -copyts"), "{a}");
-        assert!(
-            a.contains("[0:0]scale_cuda=w=1920:h=1080:format=yuv420p[main];[1:3]scale=w=1920:h=1080"),
-            "{a}"
-        );
-        assert!(a.contains("overlay_cuda=eof_action=pass:repeatlast=0[out] -map [out]"), "{a}");
-
         // DivX: decoded on the CPU, uploaded.
         let d = video("mpeg4", 656, 368, 1_200_000, "SDR");
-        let a = ffmpeg_args(&media(d.clone()), &ladder(&d, true, None, true)[0], 1)
-            .unwrap()
-            .join(" ");
+        let a = ffmpeg_args(&media(d.clone()), &ladder(&d, true, true)[0], 1).unwrap().join(" ");
         assert!(a.contains("-threads 3 -noaccurate_seek") && !a.contains("-hwaccel cuda"), "{a}");
         assert!(a.contains("scale=w=656:h=368:flags=bicubic,format=nv12,hwupload_cuda"), "{a}");
 
         // HDR kept: HEVC Main 10 with the source's colours; tone-mapped: BT.709.
         let h = video("hevc", 3840, 2160, 60_000_000, "PQ");
-        let a = ffmpeg_args(&media(h.clone()), &ladder(&h, true, None, true)[2], 1)
-            .unwrap()
-            .join(" ");
+        let a = ffmpeg_args(&media(h.clone()), &ladder(&h, true, true)[2], 1).unwrap().join(" ");
         assert!(
             a.contains("hevc_nvenc -profile:v main10") && a.contains("format=p010le") && a.contains("-color_trc smpte2084"),
             "{a}"
         );
-        let a = ffmpeg_args(&media(h.clone()), &ladder(&h, false, None, true)[0], 1)
-            .unwrap()
-            .join(" ");
+        let a = ffmpeg_args(&media(h.clone()), &ladder(&h, false, true)[0], 1).unwrap().join(" ");
         assert!(
             a.contains("tonemap_cuda=format=nv12") && a.contains("-color_trc bt709") && a.contains("-preset p1"),
             "{a}"
@@ -1688,7 +1584,7 @@ pub(crate) mod tests {
     fn short_nal_lengths_are_rewritten_on_copy() {
         let out = std::path::Path::new("/tmp/out.mp4");
         let mut v = video("h264", 1920, 1080, 12_000_000, "SDR");
-        let l = ladder(&v, true, None, true);
+        let l = ladder(&v, true, true);
         assert_eq!(l[0].id, "copy");
         let a = crate::downloads::job_args(&media(v.clone()), &l[0], &[], out).unwrap().join(" ");
         assert!(a.contains("-c:v copy -tag:v avc1") && !a.contains("h264_mp4toannexb"), "{a}");
@@ -1710,7 +1606,7 @@ pub(crate) mod tests {
             assert!(!backends.iter().any(|b| hw_decodes(*b, &v)), "{p}");
         }
         let nv = hw(Backend::Nvenc);
-        let l = ladder_with(&nv, &v, false, None, true);
+        let l = ladder_with(&nv, &v, false, true);
         let t = l.iter().find(|x| x.transcode).unwrap();
         let a = video_args_with(&nv, &media(v.clone()), t, 0, false).unwrap().join(" ");
         assert!(!a.contains("-hwaccel cuda") && a.contains("-c:v h264_nvenc"), "{a}");
@@ -1737,7 +1633,7 @@ pub(crate) mod tests {
         let va = hw(Backend::Vaapi);
         let v = video("h264", 1920, 1080, 12_000_000, "SDR");
         let m = media(v.clone());
-        let l = ladder_with(&va, &v, true, None, true);
+        let l = ladder_with(&va, &v, true, true);
         assert_eq!(
             ids(&l),
             ["copy", "h264-1920x1080-10000k", "h264-1280x720-4000k", "h264-854x480-1500k"]
@@ -1751,7 +1647,7 @@ pub(crate) mod tests {
         assert!(a.contains("-bf 0 -g 100000 -force_key_frames 11.778,26.501 "), "{a}");
         // DivX: decoded on the CPU, uploaded, scaled on the GPU.
         let d = video("mpeg4", 656, 368, 1_200_000, "SDR");
-        let a = video_args_with(&va, &media(d.clone()), &ladder_with(&va, &d, true, None, true)[0], 1, false)
+        let a = video_args_with(&va, &media(d.clone()), &ladder_with(&va, &d, true, true)[0], 1, false)
             .unwrap()
             .join(" ");
         assert!(a.contains("-threads 4 -noaccurate_seek") && !a.contains("-hwaccel vaapi"), "{a}");
@@ -1761,7 +1657,7 @@ pub(crate) mod tests {
         va10.hevc10 = true;
         va10.gpu_tonemap = true;
         let h = video("hevc", 3840, 2160, 60_000_000, "PQ");
-        let a = video_args_with(&va10, &media(h.clone()), &ladder_with(&va10, &h, true, None, true)[2], 1, false)
+        let a = video_args_with(&va10, &media(h.clone()), &ladder_with(&va10, &h, true, true)[2], 1, false)
             .unwrap()
             .join(" ");
         assert!(
@@ -1769,7 +1665,7 @@ pub(crate) mod tests {
                 && a.contains("-color_trc smpte2084"),
             "{a}"
         );
-        let a = video_args_with(&va10, &media(h.clone()), &ladder_with(&va10, &h, false, None, true)[0], 1, false)
+        let a = video_args_with(&va10, &media(h.clone()), &ladder_with(&va10, &h, false, true)[0], 1, false)
             .unwrap()
             .join(" ");
         assert!(a.contains("-vf setparams=color_primaries=bt2020:color_trc=smpte2084:colorspace=bt2020nc,scale_vaapi=w=3840:h=2160:format=p010,tonemap_vaapi=format=nv12:p=bt709:t=bt709:m=bt709 -c:v h264_vaapi"), "{a}");
@@ -1779,7 +1675,7 @@ pub(crate) mod tests {
             vendor: Some("AMD".into()),
             ..va.clone()
         };
-        let l = ladder_with(&amd, &h, true, None, true);
+        let l = ladder_with(&amd, &h, true, true);
         assert_eq!(ids(&l)[0], "copy");
         assert!(
             l[1..].iter().all(|x| x.tonemap && x.codec == "h264" && x.range == "SDR"),
@@ -1789,10 +1685,6 @@ pub(crate) mod tests {
         let a = video_args_with(&amd, &media(h.clone()), &l[1], 1, false).unwrap().join(" ");
         assert!(a.contains("-vf scale_vaapi=w=3840:h=2160:format=p010,hwdownload,format=p010le,setparams=color_primaries=bt2020:color_trc=smpte2084:colorspace=bt2020nc,zscale=t=linear:npl=100"), "{a}");
         assert!(a.contains("format=yuv420p,format=nv12,hwupload -c:v h264_vaapi"), "{a}");
-        // Burn-in: laid over on the CPU, uploaded for the encoder.
-        let l = ladder_with(&va, &v, true, Some((4, 3)), true);
-        let a = video_args_with(&va, &m, &l[0], 2, false).unwrap().join(" ");
-        assert!(a.contains("[0:0]scale_vaapi=w=1920:h=1080:format=nv12,hwdownload,format=nv12[main];[1:3]scale=w=1920:h=1080:flags=bicubic,format=yuva420p[sub];[main][sub]overlay=eof_action=pass:repeatlast=0:format=yuv420,format=nv12,hwupload[out] -map [out]"), "{a}");
     }
 
     #[test]
@@ -1800,7 +1692,7 @@ pub(crate) mod tests {
         let mut qs = hw(Backend::Qsv);
         let v = video("hevc", 1920, 1080, 12_000_000, "SDR");
         let m = media(v.clone());
-        let l = ladder_with(&qs, &v, true, None, true);
+        let l = ladder_with(&qs, &v, true, true);
         let a = video_args_with(&qs, &m, &l[1], 1, false).unwrap().join(" ");
         assert!(a.contains("-init_hw_device vaapi=va:/dev/dri/renderD128 -init_hw_device qsv=qs@va -filter_hw_device qs -hwaccel vaapi -hwaccel_device va -hwaccel_output_format vaapi"), "{a}");
         assert!(a.contains("-vf hwmap=derive_device=qsv,format=qsv,scale_qsv=w=1920:h=1080:format=nv12 -c:v h264_qsv -profile:v high -level:v 4.0 -preset fast"), "{a}");
@@ -1812,12 +1704,12 @@ pub(crate) mod tests {
         qs.gpu_tonemap = true;
         qs.hevc10 = true;
         let h = video("hevc", 3840, 2160, 60_000_000, "HLG");
-        let a = video_args_with(&qs, &media(h.clone()), &ladder_with(&qs, &h, false, None, true)[0], 1, false)
+        let a = video_args_with(&qs, &media(h.clone()), &ladder_with(&qs, &h, false, true)[0], 1, false)
             .unwrap()
             .join(" ");
         assert!(a.contains("-vf setparams=color_primaries=bt2020:color_trc=arib-std-b67:colorspace=bt2020nc,hwmap=derive_device=qsv,format=qsv,vpp_qsv=tonemap=1:format=nv12:w=3840:h=2160 -c:v h264_qsv"), "{a}");
         assert!(a.contains("-preset veryfast"), "{a}");
-        let a = video_args_with(&qs, &media(h.clone()), &ladder_with(&qs, &h, true, None, true)[1], 1, false)
+        let a = video_args_with(&qs, &media(h.clone()), &ladder_with(&qs, &h, true, true)[1], 1, false)
             .unwrap()
             .join(" ");
         assert!(
@@ -1827,7 +1719,7 @@ pub(crate) mod tests {
         // A 10-bit H.264 source: decoded on the CPU, uploaded as P010.
         let mut x = video("h264", 1280, 720, 6_000_000, "SDR");
         x.pix_fmt = "yuv420p10le".into();
-        let a = video_args_with(&qs, &media(x.clone()), &ladder_with(&qs, &x, true, None, true)[1], 0, true)
+        let a = video_args_with(&qs, &media(x.clone()), &ladder_with(&qs, &x, true, true)[1], 0, true)
             .unwrap()
             .join(" ");
         assert!(
@@ -1841,7 +1733,7 @@ pub(crate) mod tests {
         let cpu = hw(Backend::Cpu);
         // At most 1080p: the 4K preset is left out, "Original" of a 4K AV1 is 1080p.
         let a1 = video("av1", 3840, 2160, 20_000_000, "SDR");
-        let l = ladder_with(&cpu, &a1, true, None, true);
+        let l = ladder_with(&cpu, &a1, true, true);
         assert_eq!(
             ids(&l),
             [
@@ -1868,7 +1760,7 @@ pub(crate) mod tests {
         );
         // HDR: the copy for HDR screens, everything else tone-mapped on the CPU.
         let h = video("hevc", 3840, 2160, 60_000_000, "PQ");
-        let l = ladder_with(&cpu, &h, true, None, true);
+        let l = ladder_with(&cpu, &h, true, true);
         assert_eq!(
             ids(&l),
             [
@@ -1879,7 +1771,7 @@ pub(crate) mod tests {
                 "h264-854x480-1500k-tm"
             ]
         );
-        let l = ladder_with(&cpu, &h, false, None, true);
+        let l = ladder_with(&cpu, &h, false, true);
         assert_eq!(
             ids(&l),
             [
@@ -1891,14 +1783,9 @@ pub(crate) mod tests {
         );
         let a = video_args_with(&cpu, &media(h.clone()), &l[0], 1, false).unwrap().join(" ");
         assert!(a.contains("-vf scale=w=1920:h=1080:flags=bicubic,setparams=color_primaries=bt2020:color_trc=smpte2084:colorspace=bt2020nc,zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p -c:v libx264"), "{a}");
-        // Burn-in.
-        let v = video("h264", 1920, 1080, 12_000_000, "SDR");
-        let l = ladder_with(&cpu, &v, true, Some((4, 3)), true);
-        let a = video_args_with(&cpu, &media(v), &l[0], 2, false).unwrap().join(" ");
-        assert!(a.contains("[0:0]scale=w=1920:h=1080:flags=bicubic,format=yuv420p[main];[1:3]scale=w=1920:h=1080:flags=bicubic,format=yuva420p[sub];[main][sub]overlay=eof_action=pass:repeatlast=0:format=yuv420,format=nv12[out]"), "{a}");
         // Nothing to transcode with: only the copy.
         let none = Hw { available: false, ..cpu };
-        assert_eq!(ids(&ladder_with(&none, &h, true, None, true)), ["copy"]);
+        assert_eq!(ids(&ladder_with(&none, &h, true, true)), ["copy"]);
     }
 
     #[test]
@@ -1911,8 +1798,8 @@ pub(crate) mod tests {
             (video("hevc", 3840, 2160, 60_000_000, "PQ"), false),
             (video("mpeg4", 656, 368, 1_200_000, "SDR"), true),
         ] {
-            let l = ladder_with(&n, &v, hdr, None, true);
-            assert_eq!(l, ladder(&v, hdr, None, true));
+            let l = ladder_with(&n, &v, hdr, true);
+            assert_eq!(l, ladder(&v, hdr, true));
             for x in l.iter().filter(|x| x.transcode) {
                 assert_eq!(
                     video_args_with(&n, &media(v.clone()), x, 1, false).unwrap(),
@@ -1927,7 +1814,7 @@ pub(crate) mod tests {
         let cache = Arc::new(Cache::new(std::env::temp_dir().join("moonrise-admit-dl-test"), 1 << 20));
         let t = Transcoder::new("ffmpeg".into(), cache, 1);
         let v = video("h264", 1920, 1080, 12_000_000, "SDR");
-        let l = ladder(&v, true, None, true);
+        let l = ladder(&v, true, true);
         let a = media(v);
         let run = |owner: &str| {
             Arc::new(Run {
@@ -1960,7 +1847,7 @@ pub(crate) mod tests {
         let cache = Arc::new(Cache::new(std::env::temp_dir().join("moonrise-admit-test"), 1 << 20));
         let t = Transcoder::new("ffmpeg".into(), cache, 2);
         let v = video("h264", 1920, 1080, 12_000_000, "SDR");
-        let l = ladder(&v, true, None, true);
+        let l = ladder(&v, true, true);
         let (a, b) = (media(v.clone()), {
             let mut m = media(v);
             m.item_id = "j".into();
@@ -1996,7 +1883,7 @@ pub(crate) mod tests {
         let vt = Hw::videotoolbox(4);
         // SDR H.264: decoded, scaled and encoded on VideoToolbox frames.
         let v = video("h264", 1920, 1080, 12_000_000, "SDR");
-        let l = ladder_with(&vt, &v, true, None, true);
+        let l = ladder_with(&vt, &v, true, true);
         assert_eq!(
             ids(&l),
             ["copy", "h264-1920x1080-10000k", "h264-1280x720-4000k", "h264-854x480-1500k"]
@@ -2006,7 +1893,7 @@ pub(crate) mod tests {
         assert!(a.contains("-map 0:0 -vf scale_vt=w=1280:h=720 -c:v h264_videotoolbox -profile:v high -level:v 3.1 -allow_sw 0 -b:v 4000000 -maxrate 5000000 -bufsize 8000000 -bf 0 -g 100000 -force_key_frames 11.778,26.501"), "{a}");
         // HDR for an SDR screen: tone-mapped by scale_vt, no colour matrix asked for.
         let hdr = video("hevc", 3840, 2160, 60_000_000, "PQ");
-        let l = ladder_with(&vt, &hdr, false, None, true);
+        let l = ladder_with(&vt, &hdr, false, true);
         assert_eq!(l[0].id, "h264-3840x2160-40000k-tm");
         let a = video_args_with(&vt, &media(hdr.clone()), &l[1], 0, false).unwrap().join(" ");
         assert!(
@@ -2018,7 +1905,7 @@ pub(crate) mod tests {
             "{a}"
         );
         // HDR screen: HEVC Main 10, the level left to the encoder.
-        let l = ladder_with(&vt, &hdr, true, None, true);
+        let l = ladder_with(&vt, &hdr, true, true);
         let h = l.iter().find(|x| x.codec == "hevc" && x.transcode).unwrap();
         let a = video_args_with(&vt, &media(hdr.clone()), h, 0, false).unwrap().join(" ");
         assert!(
@@ -2027,21 +1914,17 @@ pub(crate) mod tests {
         );
         // DivX: decoded on the CPU, uploaded.
         let d = video("mpeg4", 656, 368, 1_200_000, "SDR");
-        let l = ladder_with(&vt, &d, true, None, true);
+        let l = ladder_with(&vt, &d, true, true);
         let a = video_args_with(&vt, &media(d.clone()), &l[0], 0, false).unwrap().join(" ");
         assert!(
             a.contains("-filter_hw_device vt -threads 4 -noaccurate_seek")
                 && a.contains("-vf format=nv12,hwupload,scale_vt=w=656:h=368 -c:v h264_videotoolbox"),
             "{a}"
         );
-        // Burned-in subtitles: down to the CPU, laid over, encoded from there.
-        let l = ladder_with(&vt, &v, true, Some((4, 3)), true);
-        let a = video_args_with(&vt, &media(v.clone()), &l[0], 0, false).unwrap().join(" ");
-        assert!(a.contains("[0:0]scale_vt=w=1920:h=1080,hwdownload,format=nv12[main];[0:3]scale=w=1920:h=1080:flags=bicubic,format=yuva420p[sub];[main][sub]overlay=eof_action=pass:repeatlast=0:format=yuv420,format=nv12[out]"), "{a}");
         // Tone-mapping on the CPU when scale_vt can't, from the device.
         let mut cpu_tm = vt.clone();
         cpu_tm.gpu_tonemap = false;
-        let l = ladder_with(&cpu_tm, &hdr, false, None, true);
+        let l = ladder_with(&cpu_tm, &hdr, false, true);
         let a = video_args_with(&cpu_tm, &media(hdr.clone()), &l[1], 0, false).unwrap().join(" ");
         assert!(
             a.contains(
@@ -2056,27 +1939,24 @@ pub(crate) mod tests {
             ..vt.clone()
         };
         let small = video("mpeg4", 480, 270, 1_000_000, "SDR");
-        let l = ladder_with(&intel, &small, true, None, true);
+        let l = ladder_with(&intel, &small, true, true);
         let a = video_args_with(&intel, &media(small.clone()), &l[0], 0, false).unwrap().join(" ");
         assert!(a.contains("-c:v libx264") && !a.contains("videotoolbox"), "{a}");
-        let a = video_args_with(&intel, &media(v.clone()), &ladder_with(&intel, &v, true, None, true)[3], 0, false)
+        let a = video_args_with(&intel, &media(v.clone()), &ladder_with(&intel, &v, true, true)[3], 0, false)
             .unwrap()
             .join(" ");
         assert!(a.contains("scale_vt=w=854:h=480 -c:v h264_videotoolbox"), "{a}");
         // Neither (Homebrew's ffmpeg has no zscale): HDR plays only as it is.
         cpu_tm.cpu_tonemap = false;
-        assert_eq!(ids(&ladder_with(&cpu_tm, &hdr, false, None, true)), ["copy"]);
-        assert!(
-            ladder_with(&cpu_tm, &hdr, true, None, true).len() > 1,
-            "kept HDR needs no tone-mapping"
-        );
+        assert_eq!(ids(&ladder_with(&cpu_tm, &hdr, false, true)), ["copy"]);
+        assert!(ladder_with(&cpu_tm, &hdr, true, true).len() > 1, "kept HDR needs no tone-mapping");
     }
 
     #[test]
     fn v4l2_command_lines() {
         let pi = Hw::v4l2(3);
         let v = video("h264", 1920, 1080, 12_000_000, "SDR");
-        let l = ladder_with(&pi, &v, true, None, true);
+        let l = ladder_with(&pi, &v, true, true);
         assert_eq!(
             ids(&l),
             ["copy", "h264-1920x1080-10000k", "h264-1280x720-4000k", "h264-854x480-1500k"]
@@ -2086,7 +1966,7 @@ pub(crate) mod tests {
         assert!(!a.contains("-level:v") && a.contains("-bf 0 -g 100000 -force_key_frames"), "{a}");
         // DivX: CPU decoding, at most 1080p.
         let d = video("mpeg4", 1920, 1080, 8_000_000, "SDR");
-        let a = video_args_with(&pi, &media(d.clone()), &ladder_with(&pi, &d, true, None, true)[0], 0, false)
+        let a = video_args_with(&pi, &media(d.clone()), &ladder_with(&pi, &d, true, true)[0], 0, false)
             .unwrap()
             .join(" ");
         assert!(
@@ -2095,14 +1975,14 @@ pub(crate) mod tests {
         );
         // 4K and 10-bit HEVC: as they are only.
         assert_eq!(
-            ids(&ladder_with(&pi, &video("hevc", 3840, 2160, 60_000_000, "PQ"), false, None, true)),
+            ids(&ladder_with(&pi, &video("hevc", 3840, 2160, 60_000_000, "PQ"), false, true)),
             ["copy"]
         );
         assert_eq!(
-            ids(&ladder_with(&pi, &video("hevc", 1920, 1080, 8_000_000, "PQ"), false, None, true)),
+            ids(&ladder_with(&pi, &video("hevc", 1920, 1080, 8_000_000, "PQ"), false, true)),
             ["copy"]
         );
-        assert!(ladder_with(&pi, &video("h264", 3840, 2160, 40_000_000, "SDR"), true, None, true)
+        assert!(ladder_with(&pi, &video("h264", 3840, 2160, 40_000_000, "SDR"), true, true)
             .iter()
             .all(|x| !x.transcode));
         assert!(pi
@@ -2127,7 +2007,7 @@ pub(crate) mod tests {
             board_cpu.too_heavy(&video("hevc", 3840, 2160, 60_000_000, "PQ")).is_some(),
             "a board's CPU doesn't"
         );
-        let l = ladder_with(&board_cpu, &v, true, None, true);
+        let l = ladder_with(&board_cpu, &v, true, true);
         assert_eq!(ids(&l), ["copy", "h264-1280x720-4000k", "h264-854x480-1500k"], "720p at most");
         let a = video_args_with(&board_cpu, &media(v.clone()), &l[1], 0, false).unwrap().join(" ");
         assert!(
@@ -2135,7 +2015,7 @@ pub(crate) mod tests {
             "{a}"
         );
         // 4K MPEG-4 Part 2 can't be copied: nothing to serve (the playback answer says why).
-        assert!(ladder_with(&pi, &video("mpeg4", 3840, 2160, 40_000_000, "SDR"), true, None, true).is_empty());
+        assert!(ladder_with(&pi, &video("mpeg4", 3840, 2160, 40_000_000, "SDR"), true, true).is_empty());
     }
 
     #[test]
@@ -2177,7 +2057,7 @@ pub(crate) mod tests {
         let cache = Arc::new(Cache::new(dir.join("cache"), 1 << 20));
         let t = Arc::new(Transcoder::new(ffmpeg.to_string_lossy().into(), cache, 1));
         let v = video("h264", 1920, 1080, 12_000_000, "SDR");
-        let l = ladder(&v, true, None, true);
+        let l = ladder(&v, true, true);
         let mut m = media(v);
         m.duration = 120.0;
         m.boundaries = (0..20).map(|i| i as f64 * 6.0).collect();
@@ -2215,7 +2095,7 @@ pub(crate) mod tests {
         let cache = Arc::new(Cache::new(dir.join("cache"), 1 << 20));
         let t = Arc::new(Transcoder::new(ffmpeg.to_string_lossy().into(), cache, 1));
         let v = video("h264", 1920, 1080, 12_000_000, "SDR");
-        let l = ladder(&v, true, None, true);
+        let l = ladder(&v, true, true);
         let mut m = media(v);
         m.duration = 120.0;
         m.boundaries = (0..20).map(|i| i as f64 * 6.0).collect();

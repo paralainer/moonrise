@@ -52,7 +52,7 @@ pub struct Config {
     /// `MOONRISE_OPENSUBTITLES_ENV` (default `/data/secrets/opensubtitles.env`, `KEY=value` lines,
     /// read literally).
     pub opensubtitles: OpenSubtitlesCreds,
-    /// Kill switches: `MOONRISE_DISABLE=db,probe_cache,convert,mp4_index,scan_index,transcode,burn,
+    /// Kill switches: `MOONRISE_DISABLE=db,probe_cache,convert,mp4_index,scan_index,transcode,
     /// subs_extract,downloads,opensubtitles,library,llm,moonrise_auth,mdns`, and the store's
     /// `features.*`. See [`Feature`]. Shared by the clones of one `Config`, so the switches that
     /// apply live are changed for every holder at once.
@@ -203,9 +203,6 @@ pub enum Feature {
     /// (MPEG-4 Part 2, MPEG-2, AV1, VC-1, 10-bit H.264), HDR tone-mapped for SDR displays. Off:
     /// only the copied original is served.
     Transcode,
-    /// Bitmap subtitles (PGS, DVD) burned into a transcoded variant (`burn=`). Off: such
-    /// requests are answered `supported: false`.
-    Burn,
     /// Text subtitles extracted here (one ffmpeg pass per file, kept in `/data/subs`) and
     /// sidecar files read from the media share. Off: text subtitles aren't served.
     SubsExtract,
@@ -260,14 +257,13 @@ pub enum Feature {
 }
 
 impl Feature {
-    pub const ALL: [Feature; 22] = [
+    pub const ALL: [Feature; 21] = [
         Feature::Db,
         Feature::ProbeCache,
         Feature::Convert,
         Feature::Mp4Index,
         Feature::ScanIndex,
         Feature::Transcode,
-        Feature::Burn,
         Feature::SubsExtract,
         Feature::SubsWindows,
         Feature::SubsBackfill,
@@ -312,7 +308,6 @@ impl Feature {
             Feature::Mp4Index => "mp4_index",
             Feature::ScanIndex => "scan_index",
             Feature::Transcode => "transcode",
-            Feature::Burn => "burn",
             Feature::SubsExtract => "subs_extract",
             Feature::SubsWindows => "subs_windows",
             Feature::SubsBackfill => "subs_backfill",

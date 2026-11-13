@@ -282,7 +282,8 @@ pub struct SubtitleTrack {
     pub index: i64,
     /// ffprobe's stream index (embedded tracks).
     pub stream: Option<i64>,
-    /// Text (served as a WebVTT rendition) or bitmap (PGS/DVD: can be burned in, `burn=`).
+    /// Text (served as a WebVTT rendition) or pictures (PGS, DVD, DVB: served as images in
+    /// windows, `subtitles/pictures.rs`, drawn by the app).
     pub text: bool,
     pub codec: String,
     pub name: String,
@@ -758,14 +759,17 @@ impl Media {
         audio
     }
 
-    /// The subtitle tracks: text ones (embedded or sidecar), and embedded bitmap ones (burn-in).
+    /// The subtitle tracks: text ones (embedded or sidecar), and embedded picture ones the server
+    /// can decode (PGS, DVD, DVB).
     fn subtitle_tracks(item: &item::Item, ms: &item::MediaSource, map: &HashMap<i64, i64>) -> Vec<SubtitleTrack> {
         let mut subtitles: Vec<SubtitleTrack> = Vec::new();
         for s in ms.media_streams.iter().filter(|s| s.kind == "Subtitle") {
             let stream = map.get(&s.index).copied();
-            // Bitmap tracks are listed for burn-in; only embedded ones can be (sidecar .sup/.sub
-            // files aren't read).
-            if !s.is_text_subtitle_stream && (s.is_external || stream.is_none()) {
+            // Picture tracks are listed when they are embedded (sidecar .sup/.sub files aren't
+            // read) and in a format the server decodes.
+            if !s.is_text_subtitle_stream
+                && (s.is_external || stream.is_none() || !crate::subtitles::pictures::servable(s.codec.as_deref().unwrap_or_default()))
+            {
                 continue;
             }
             // The display title: Moonrise matches the rendition to its overlay track by it.

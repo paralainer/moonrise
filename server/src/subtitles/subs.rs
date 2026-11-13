@@ -84,10 +84,10 @@ impl Drop for StreamRead {
 /// meanwhile, as for stream cuts.
 pub static WINDOW_READS: AtomicUsize = AtomicUsize::new(0);
 
-struct WindowRead;
+pub(crate) struct WindowRead;
 
 impl WindowRead {
-    fn start() -> WindowRead {
+    pub(crate) fn start() -> WindowRead {
         WINDOW_READS.fetch_add(1, Ordering::SeqCst);
         WindowRead
     }
@@ -128,7 +128,7 @@ pub struct Window {
 
 /// A scanned window's pace: each read waits while a stream segment is cut (so the video of what
 /// plays doesn't wait for its subtitles), at most 1.5 s in all for the window.
-fn yield_to_streams() -> impl Fn() -> futures_util::future::BoxFuture<'static, Result<subx::Step>> + Send + Sync {
+pub(crate) fn yield_to_streams() -> impl Fn() -> futures_util::future::BoxFuture<'static, Result<subx::Step>> + Send + Sync {
     let waited = Arc::new(Mutex::new(Duration::ZERO));
     move || {
         let waited = waited.clone();
@@ -149,7 +149,7 @@ fn yield_to_streams() -> impl Fn() -> futures_util::future::BoxFuture<'static, R
 }
 
 /// A file's index as read for windows.
-enum FileIndex {
+pub(crate) enum FileIndex {
     Mkv {
         index: Arc<mkv::Index>,
         file: subx::File,
@@ -221,7 +221,11 @@ pub struct Subs {
     indexes: Mutex<HashMap<String, (Arc<FileIndex>, Instant)>>,
     index_inflight: Mutex<HashMap<String, Arc<tokio::sync::OnceCell<Result<(), String>>>>>,
     /// Scanned windows read one at a time (the next one waits for the one at the playhead).
-    scan_gate: tokio::sync::Semaphore,
+    pub(crate) scan_gate: tokio::sync::Semaphore,
+    /// ffprobe, for picture subtitle packets outside Matroska (`pictures.rs`).
+    pub(crate) ffprobe: String,
+    /// Picture subtitle windows made, and those being made (`pictures.rs`).
+    pub(crate) pictures: crate::subtitles::pictures::Cache,
     /// Matching fetched and uploaded tracks to the file (`subsync.rs`).
     pub(crate) sync: crate::subtitles::subsync::Jobs,
     /// The switches: `subs_sync` can change while the server runs.
@@ -281,7 +285,7 @@ pub struct Extra {
 }
 
 impl Subs {
-    pub fn new(dir: PathBuf, ffmpeg: String, extract: bool, switches: crate::admin::config::Switches) -> Self {
+    pub fn new(dir: PathBuf, ffmpeg: String, ffprobe: String, extract: bool, switches: crate::admin::config::Switches) -> Self {
         let _ = std::fs::create_dir_all(&dir);
         Subs {
             dir,
@@ -301,6 +305,8 @@ impl Subs {
             indexes: Mutex::new(HashMap::new()),
             index_inflight: Mutex::new(HashMap::new()),
             scan_gate: tokio::sync::Semaphore::new(1),
+            ffprobe,
+            pictures: crate::subtitles::pictures::Cache::default(),
             sync: crate::subtitles::subsync::Jobs::new(),
             switches,
         }
@@ -1091,7 +1097,7 @@ impl Subs {
 
     /// The file's index for windows (read once, kept): Matroska's Cues and tracks, or an MP4's
     /// timed-text sample tables.
-    async fn file_index(&self, media: &Media) -> Result<FileIndex> {
+    pub(crate) async fn file_index(&self, media: &Media) -> Result<FileIndex> {
         let cached = || {
             self.indexes.lock().unwrap().get(&media.file_key).map(|(fi, _)| match fi.as_ref() {
                 FileIndex::Mkv { index, file, header } => FileIndex::Mkv {
@@ -1161,7 +1167,7 @@ impl Subs {
         Ok(())
     }
 
-    fn store_index(&self, file_key: &str, fi: &FileIndex) {
+    pub(crate) fn store_index(&self, file_key: &str, fi: &FileIndex) {
         let copy = match fi {
             FileIndex::Mkv { index, file, header } => FileIndex::Mkv {
                 index: index.clone(),

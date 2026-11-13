@@ -116,25 +116,23 @@ fn video_args_golden() {
             // An SDR source's ladder doesn't depend on the screen.
             let displays: &[bool] = if v.hdr() { &[true, false] } else { &[true] };
             for &hdr_display in displays {
-                for burn in [None, Some((4, 3))] {
-                    let l = ladder_with(&hw, &v, hdr_display, burn, true);
-                    let ids: Vec<&str> = l.iter().map(|x| x.id.as_str()).collect();
-                    let _ = writeln!(out, "## {sname} hdr_display={hdr_display} burn={burn:?}: {ids:?}");
-                    // Every variant at a later segment; the first also at the first segment and
-                    // as a whole file.
-                    for (i, variant) in l.iter().filter(|x| x.transcode).enumerate() {
-                        let runs: &[(usize, bool)] = if i == 0 {
-                            &[(2, false), (0, false), (0, true)]
-                        } else {
-                            &[(2, false)]
+                let l = ladder_with(&hw, &v, hdr_display, true);
+                let ids: Vec<&str> = l.iter().map(|x| x.id.as_str()).collect();
+                let _ = writeln!(out, "## {sname} hdr_display={hdr_display}: {ids:?}");
+                // Every variant at a later segment; the first also at the first segment and
+                // as a whole file.
+                for (i, variant) in l.iter().filter(|x| x.transcode).enumerate() {
+                    let runs: &[(usize, bool)] = if i == 0 {
+                        &[(2, false), (0, false), (0, true)]
+                    } else {
+                        &[(2, false)]
+                    };
+                    for &(n, progressive) in runs {
+                        let a = match video_args_with(&hw, &m, variant, n, progressive) {
+                            Ok(a) => a.join(" "),
+                            Err(e) => format!("Err({e:#})"),
                         };
-                        for &(n, progressive) in runs {
-                            let a = match video_args_with(&hw, &m, variant, n, progressive) {
-                                Ok(a) => a.join(" "),
-                                Err(e) => format!("Err({e:#})"),
-                            };
-                            let _ = writeln!(out, "{} n={n} progressive={progressive}: {a}", variant.id);
-                        }
+                        let _ = writeln!(out, "{} n={n} progressive={progressive}: {a}", variant.id);
                     }
                 }
             }

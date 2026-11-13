@@ -246,7 +246,7 @@ impl Downloads {
         if media.boundaries.is_empty() {
             return Err(bad("keyframe index pending".into()));
         }
-        let ladder = transcode::ladder(v, params.hdr.unwrap_or(true), None, self.transcode_enabled);
+        let ladder = transcode::ladder(v, params.hdr.unwrap_or(true), self.transcode_enabled);
         if ladder.is_empty() {
             return Err(bad(v.copy_reason.clone().unwrap_or_else(|| "not transcoded".into())));
         }
@@ -760,7 +760,7 @@ mod tests {
         let m = Arc::new(m);
         let (info, new) = d.create(&m, JobParams::default()).expect("a silent title downloads");
         assert!(new && info.audio.is_empty());
-        let variant = transcode::ladder(&v, true, None, false).remove(0);
+        let variant = transcode::ladder(&v, true, false).remove(0);
         let args = job_args(&m, &variant, &[], Path::new("/o/a.mp4")).unwrap().join(" ");
         assert!(args.contains("-map 0:0 -c:v copy") && !args.contains("-c:a"), "{args}");
         let _ = std::fs::remove_dir_all(&dir);

@@ -95,12 +95,12 @@ fn ready(st: &AppState) -> Result<(), ApiError> {
     }
 }
 
-/// The title's variants for downloads: both ladders (with and without HDR), no burn-in.
+/// The title's variants for downloads: both ladders (with and without HDR).
 fn ladders(st: &AppState, media: &Media) -> Vec<Variant> {
     let Some(v) = media.video.as_ref() else { return Vec::new() };
     let tx = st.config.enabled(Feature::Transcode);
-    let mut out = transcode::ladder(v, true, None, tx);
-    for x in transcode::ladder(v, false, None, tx) {
+    let mut out = transcode::ladder(v, true, tx);
+    for x in transcode::ladder(v, false, tx) {
         if !out.iter().any(|y| y.id == x.id) {
             out.push(x);
         }
@@ -197,7 +197,7 @@ pub async fn describe(
     let hdr = q.get("hdr").is_none_or(|h| h != "0");
     let quality = q.get("quality").and_then(|s| s.parse::<i64>().ok()).filter(|b| *b > 0);
     let transcode_on = st.config.enabled(Feature::Transcode);
-    let ladder = transcode::ladder(v, hdr, None, transcode_on);
+    let ladder = transcode::ladder(v, hdr, transcode_on);
     if ladder.is_empty() {
         return Err(bad(v.copy_reason.clone().unwrap_or_else(|| "not transcoded".into())));
     }
@@ -378,7 +378,7 @@ mod tests {
         use crate::media::transcode::{ladder, tests};
         let v = tests::video("h264", 1920, 1080, 4_000_000, "SDR");
         let m = tests::media(v.clone());
-        let variant = ladder(&v, true, None, false).remove(0);
+        let variant = ladder(&v, true, false).remove(0);
         let out = master(&m, &variant, &[], &[]);
         assert!(!out.contains("AUDIO"), "{out}");
         assert!(out.ends_with(",VIDEO-RANGE=SDR\nvideo/index.m3u8\n"), "{out}");

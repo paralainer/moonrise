@@ -74,7 +74,7 @@ struct ReportBody {
     credits: Option<f64>,
     #[allow(dead_code, reason = "sent by the apps; accepted, not used (`tracks` says more)")]
     audio: Option<i64>,
-    #[allow(dead_code, reason = "sent by the apps (the burned-in track); accepted, not used")]
+    #[allow(dead_code, reason = "sent by the apps (a subtitle track); accepted, not used (`tracks` says more)")]
     subtitle: Option<i64>,
     /// The audio and subtitle tracks playing (`super::tracks`): kept for the file.
     tracks: Option<super::tracks::Choice>,
