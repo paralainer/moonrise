@@ -31,6 +31,9 @@ How it works inside, and every API: [docs/dev/server.md](../docs/dev/server.md).
    `http://<server>:8097/`, to browsers on the local network. It changes when the server restarts;
    5 wrong codes from one address lock that address out for 15 minutes, and after 10 wrong codes
    in all the server makes (and logs) a new one.
+   "Local" is judged by the address the connection comes from, so behind a reverse proxy on the
+   same machine every visitor looks local: set the server up (claim it) before you put it behind
+   a proxy, or an unclaimed server shows its code to anyone who reaches the proxy.
 4. **Create the admin account** (user name, password of at least 8 characters). It's signed in on
    this device, and the server is now *claimed*: the code is gone, and `/` just says it's set up.
 5. **Add your first library**: a name ("Media") and its folder, either **a folder on the server**
