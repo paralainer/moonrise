@@ -1,4 +1,4 @@
-# Publishes the landing page (site/) to GitHub Pages, at https://paralainer.github.io/moonrise/.
+# Publishes the landing page (site/) to GitHub Pages, at https://getmoonrise.dev/.
 # It runs only on a push to main that changes site/, or by hand (Actions → Pages → Run workflow),
 # and does nothing but upload site/ as it is: no build, no tests. The other workflows stay manual
 # only (CONTRIBUTING.md). scripts/tests/pages-workflow.test.sh keeps it that way.

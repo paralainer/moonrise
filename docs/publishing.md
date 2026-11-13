@@ -44,7 +44,8 @@ changes them to its own account.
    (standard HTTPS only).
 5. **App Review information**: notes from docs/demo.md ("App Review notes"), no demo account needed.
 6. Screenshots (6.9" iPhone, 13" iPad, Apple TV, Mac) — the demo makes good ones; description,
-   keywords, support URL (GitHub issues), marketing URL (the repository).
+   keywords, support URL (GitHub issues), marketing URL (the project's page,
+   https://getmoonrise.dev/).
 7. `scripts/testflight.sh ios|tvos` uploads a build once the record exists (macOS: archive in
    Xcode → Distribute). Internal TestFlight first, then submit.
 8. The server's setup page links to the App Store once there is a link:

@@ -46,7 +46,7 @@ under 10 MB.
 
 ## Hosting
 
-The page is published with GitHub Pages at <https://paralainer.github.io/moonrise/>. Pages
+The page is published with GitHub Pages at <https://getmoonrise.dev/>, a custom domain. Pages
 publishes from the repository root or `docs/`, not from `site/`, so a workflow does it:
 
 1. `.github/workflows/pages.yml` runs on a push to `main` that touches `site/**`, or by hand
@@ -56,11 +56,22 @@ publishes from the repository root or `docs/`, not from `site/`, so a workflow d
    tests. `scripts/tests/pages-workflow.test.sh` checks that it uploads `site` and starts on nothing
    else, and that the other workflows stay manual only.
 2. The repository's **Settings → Pages → Source** is **GitHub Actions** (a fork sets this once).
-3. All paths in the page are relative, so it works under the `/moonrise/` sub-path unchanged.
-4. A custom domain (optional): enter it under **Settings → Pages → Custom domain**, then point
-   DNS at GitHub: a `CNAME` record to `paralainer.github.io` for a subdomain, or the `A`/`AAAA`
-   records GitHub lists for an apex domain. Turn on **Enforce HTTPS** once the certificate is
-   issued.
+3. All paths in the page are relative, so it also works without a custom domain, under the
+   `https://<user>.github.io/<repo>/` sub-path.
+4. The custom domain is set under **Settings → Pages → Custom domain** (`getmoonrise.dev`), not
+   by a `CNAME` file: the site deploys through the workflow, so the domain lives in the
+   repository settings. GitHub then redirects `https://<user>.github.io/<repo>/` there. Its DNS
+   records, with any DNS proxy turned off so GitHub can issue the certificate:
+   - `A` on the apex: `185.199.108.153`, `185.199.109.153`, `185.199.110.153`, `185.199.111.153`
+   - `AAAA` on the apex: `2606:50c0:8000::153`, `2606:50c0:8001::153`, `2606:50c0:8002::153`,
+     `2606:50c0:8003::153`
+   - `CNAME` for `www`: `<user>.github.io`
+
+   Turn on **Enforce HTTPS** once the certificate is issued.
+5. The home address is written in three places that stay alike: the README's "The project's
+   page" line, and the page's `og:url` and `<link rel="canonical">`.
+   `scripts/tests/home-url.test.sh` checks that they agree. A fork without its own domain
+   removes the two tags or sets them to its own address.
 
 **Another static host** (Cloudflare Pages, Netlify, a web server you run): point it at the `site/`
 folder with no build command, or copy the folder's contents to the web root.
