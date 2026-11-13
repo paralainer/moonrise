@@ -10,14 +10,16 @@
 #   tv     Apple TV 4K (3rd generation) (3840 x 2160)   -> screenshots/appleTV/en-US/<n>-<name>.jpg
 #
 # The Mac's (2880 x 1800) are taken by hand on a Mac running macOS 26: the app needs it.
+# It runs on the release Mac, RELEASE_MAC, as scripts/release-apple.sh does (never MAC or FASTLANE_MAC,
+# which may name someone's own Mac; a host in PERSONAL_MACS is refused; scripts/common.sh).
 # It builds the Debug simulator app (its launch seams open the demo, a title, the player; release
 # builds have none) in its own copy on the Mac, ~/$SHOTS_DIR (default moonrise-store-shots), and
 # uses simulators of its own, "Moonrise Store <device>", made the first time (--delete removes them).
 # The player shots stream the films from their public hosts, so the Mac needs the internet.
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/common.sh"
-need_mac
-[ "$MAC" = local ] || export MAC_DIR=${SHOTS_DIR:-moonrise-store-shots}
+use_release_mac "${SHOTS_DIR:-moonrise-store-shots}"
+release_mac_ok || exit 1
 OUT="$MOONRISE_ROOT/$APPLE_DIR/fastlane/screenshots"
 DELETE=; [ "${1:-}" = --delete ] && { DELETE=1; shift; }
 WHICH=${1:-all}

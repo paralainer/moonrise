@@ -19,11 +19,15 @@ esac
 # name still gets a default here, as the scripts run under set -u.
 # Device ids given in the environment win over mac.env's (PHONE_DEVICE=<id> scripts/deploy-phone.sh).
 ENV_PHONE_DEVICE=${PHONE_DEVICE:-}; ENV_IPAD_DEVICE=${IPAD_DEVICE:-}; ENV_TV_DEVICE=${TV_DEVICE:-}
+ENV_RELEASE_MAC=${RELEASE_MAC:-}
 if [ -f "$MOONRISE_ROOT/scripts/mac.env" ]; then
   . "$MOONRISE_ROOT/scripts/mac.env"
 fi
 PHONE_DEVICE=${ENV_PHONE_DEVICE:-${PHONE_DEVICE:-}}; IPAD_DEVICE=${ENV_IPAD_DEVICE:-${IPAD_DEVICE:-}}; TV_DEVICE=${ENV_TV_DEVICE:-${TV_DEVICE:-}}
 MAC=${MAC:-}
+# The store pipeline's Mac (release-apple.sh, store-shots.sh; use_release_mac below): the
+# environment's RELEASE_MAC wins over mac.env's.
+RELEASE_MAC=${ENV_RELEASE_MAC:-${RELEASE_MAC:-}}; PERSONAL_MACS=${PERSONAL_MACS:-}
 MAC_DIR_GIVEN=${MAC_DIR:-}
 MAC_DIR=${MAC_DIR:-video-player}
 SIM_PHONE=${SIM_PHONE:-}; SIM_TV=${SIM_TV:-}
@@ -98,6 +102,44 @@ if [ "$MAC" = local ]; then
     for a in "$@"; do args+=("$(local_path "$a")"); done
     command cp "${args[@]}"
   }
+fi
+
+# The store pipeline (release-apple.sh, store-shots.sh) runs on RELEASE_MAC only, the build Mac with
+# the distribution certificates (user@host). MAC, FASTLANE_MAC and TSKIT_MAC are never used there:
+# they may name someone's own Mac. Hosts in PERSONAL_MACS (mac.env, space-separated, user@ optional,
+# any case) are refused.
+# release_mac_ok: RELEASE_MAC is set, is user@host, and isn't in PERSONAL_MACS. Prints why not.
+host_of() { local h=${1##*@}; printf '%s\n' "$h" | tr '[:upper:]' '[:lower:]'; }
+release_mac_ok() {
+  local p
+  if [ -z "$RELEASE_MAC" ]; then
+    echo "error: no release Mac: set RELEASE_MAC=user@host (the build Mac with the distribution certificates) in scripts/mac.env or the environment; MAC and FASTLANE_MAC aren't used for the App Store" >&2
+    return 1
+  fi
+  if [ "$RELEASE_MAC" = local ]; then
+    echo "error: RELEASE_MAC=local isn't supported: name the Mac as user@host (Remote Login on)" >&2
+    return 1
+  fi
+  for p in $PERSONAL_MACS; do
+    if [ "$(host_of "$p")" = "$(host_of "$RELEASE_MAC")" ]; then
+      echo "error: RELEASE_MAC $RELEASE_MAC is listed in PERSONAL_MACS: the App Store pipeline never runs on a personal Mac" >&2
+      return 1
+    fi
+  done
+}
+# use_release_mac <folder>: from here on, MAC is RELEASE_MAC (checked with release_mac_ok before
+# reaching it), the folder there is ~/<folder>, ssh/rsync/scp are the real ones (no local mode), and
+# FASTLANE_MAC/TSKIT_MAC are empty. Exported, so the scripts this one runs (build.sh,
+# build-tailscalekit.sh) do the same when they source this file, whatever mac.env says.
+use_release_mac() {
+  unset -f ssh rsync scp 2>/dev/null || true
+  MAC=$RELEASE_MAC; FASTLANE_MAC=; TSKIT_MAC=
+  MAC_DIR=$1
+  export RELEASE_MAC MOONRISE_RELEASE_DIR=$1
+}
+if [ -n "${MOONRISE_RELEASE_DIR:-}" ]; then
+  use_release_mac "$MOONRISE_RELEASE_DIR"
+  release_mac_ok || exit 1
 fi
 
 # The app's identity: clients/apple/Config/Signing.local.xcconfig (git-ignored) wins over
