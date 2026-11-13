@@ -61,6 +61,24 @@ SHOTS_TV=(
   "4-title 15 DEMO=1 OPEN_ITEM=demo-sintel"
 )
 
+# strip_jpeg <file>: drop the Exif / XMP (APP1) and comment segments sips writes, keeping the
+# pixels (scripts/export-public.sh refuses images that carry text).
+strip_jpeg() {
+  python3 -I - "$1" <<'PY'
+import struct, sys
+p = sys.argv[1]
+d = open(p, "rb").read()
+out, i = bytearray(d[:2]), 2
+while i + 4 <= len(d) and d[i] == 0xFF and d[i + 1] != 0xDA:
+    n = 2 + struct.unpack(">H", d[i + 2:i + 4])[0]
+    if d[i + 1] not in (0xE1, 0xFE):
+        out += d[i:i + n]
+    i += n
+out += d[i:]
+open(p, "wb").write(out)
+PY
+}
+
 built_sim=; built_tv=
 for k in $KINDS; do
   if [ "$k" = tv ]; then
@@ -95,6 +113,7 @@ $([ -n "$land" ] && echo "sips -r 270 /tmp/moonrise-store-shot.png >/dev/null")
 sips -s format jpeg -s formatOptions 90 /tmp/moonrise-store-shot.png --out /tmp/moonrise-store-shot.jpg >/dev/null
 xcrun simctl terminate $U $APP_ID >/dev/null 2>&1 || true"
     scp -q "$MAC:/tmp/moonrise-store-shot.jpg" "$DEST/$file"
+    strip_jpeg "$DEST/$file"
   done
   ssh "$MAC" "xcrun simctl shutdown $U >/dev/null 2>&1 || true"
 done
