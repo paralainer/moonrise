@@ -25,7 +25,8 @@
 #   review platforms:... [ios_build:N] [tvos_build:N] [mac_build:N]
 #                                    App Review notes and contact, and attach the build (that number, else the
 #                                    newest processed one). Never submits.
-#   submit platforms:... confirm:yes submit for App Review (manual release afterwards)
+#   submit platforms:... confirm:yes submit for App Review, each version set to manual release first (read
+#                                    back; it stops when it isn't MANUAL)
 #   team_testers                     internal TestFlight group "Team" with every build, holding the team's admins
 #   adhoc_profiles                   ad-hoc profiles for over-the-air installs (scripts/ota.sh)
 #   register_tv name:N udid:U        register a device for development profiles
@@ -34,6 +35,7 @@ default_platform(:ios)
 # (fastlane evaluates this file with __dir__ ".", from the fastlane folder; deliver later runs
 # from its parent, so every path here is made absolute now.)
 FASTLANE_DIR = File.expand_path(__dir__ || ".")
+require File.join(FASTLANE_DIR, "release_helpers.rb")
 
 # The app's bundle id: MOONRISE_BUNDLE_ID (the scripts pass it), else Config/Signing.local.xcconfig,
 # else Config/Signing.xcconfig.
@@ -278,15 +280,23 @@ platform :ios do
 
   # Submitting is the owner's call: the script passes confirm:yes only when told to.
   lane :submit do |options|
-    # fastlane turns the command-line value "yes" into true before the lane sees it.
-    UI.user_error!("submit needs confirm:yes") unless [true, "yes"].include?(options[:confirm])
+    UI.user_error!("submit needs confirm:yes") unless MoonriseRelease.submit_confirmed?(options[:confirm])
     key = asc_key
     app = app!
+    api = Spaceship::ConnectAPI.tunes_request_client
     platform_list(options).each do |name|
       version = editable_version(app, name)
-      build = (Spaceship::ConnectAPI.tunes_request_client.get("v1/appStoreVersions/#{version.id}/build").body["data"] rescue nil)
+      build = (api.get("v1/appStoreVersions/#{version.id}/build").body["data"] rescue nil)
       number = build&.dig("attributes", "version").to_s
       UI.user_error!("#{name}: no build attached (run review first)") if number.empty?
+      # Manual release, set on the version itself: deliver's automatic_release: false is skipped
+      # with skip_app_version_update. Stop here, before submitting, when it doesn't read back.
+      begin
+        MoonriseRelease.manual_release!(api, version.id)
+      rescue RuntimeError => e
+        UI.user_error!("#{name}: couldn't set manual release, not submitted: #{e.message}")
+      end
+      UI.message("#{name}: release type MANUAL")
       deliver(api_key: key, app_identifier: moonrise_bundle_id, platform: platform!(name)[:fastlane],
               app_version: version.version_string, build_number: number, skip_binary_upload: true, skip_metadata: true,
               skip_screenshots: true, skip_app_version_update: true, submit_for_review: true, automatic_release: false,
@@ -296,7 +306,16 @@ platform :ios do
               submission_information: { add_id_info_uses_idfa: false, export_compliance_uses_encryption: false,
                                         content_rights_contains_third_party_content: true,
                                         content_rights_has_rights: true })
-      UI.success("#{name}: #{version.version_string} (#{number}) submitted for review")
+      # Read back after submitting too; set it again if the submission changed it.
+      type = MoonriseRelease.release_type(api, version.id)
+      unless type == "MANUAL"
+        begin
+          MoonriseRelease.manual_release!(api, version.id)
+        rescue RuntimeError => e
+          UI.user_error!("#{name}: submitted, but the release type is #{type.inspect}: set Manually release in App Store Connect (#{e.message})")
+        end
+      end
+      UI.success("#{name}: #{version.version_string} (#{number}) submitted for review, manual release")
     end
   end
 
