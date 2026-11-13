@@ -26,8 +26,8 @@ always drawn into a window of its own: a child HWND cannot be covered by XAML in
 - **Streams.** The app plays the server's HLS master with libmpv; audio choices select the
   rendition tracks mpv lists from it. Text subtitles are drawn by the app over the video, as the
   other apps draw them (fetched from the server, embedded tracks window by window), so their size,
-  background and delay can change; mpv shows none. Bitmap tracks are burned in by the
-  server. Reports, resume, segments and Next Episode follow
+  background and delay can change; mpv shows none. Picture tracks are drawn the same way, as
+  images from the server ([ADR 0015](0015-picture-subtitles-drawn-by-the-apps.md)). Reports, resume, segments and Next Episode follow
   the same rules and shared cases as the other apps.
 - **HDR.** The app asks for the HDR original (`hdr=1`) so the server copies it; mpv tone-maps to
   SDR with the GPU. Composition swap chains report no HDR output, so HDR passthrough to the

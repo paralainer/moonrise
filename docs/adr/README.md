@@ -20,6 +20,7 @@ change, add a new record that supersedes it rather than editing the old one.
 | [0012](0012-server-side-accounts-and-sessions.md) | Accounts and watch state on the server; sessions in stream URLs |
 | [0013](0013-the-server-is-the-only-integration-point.md) | The server is the only integration point; apps talk to it alone |
 | [0014](0014-windows-app.md) | The Windows app: C# and WinUI 3, video through libmpv's composition swap chain |
+| [0015](0015-picture-subtitles-drawn-by-the-apps.md) | Picture subtitles are drawn by the apps, never burned in |
 
 To add one: copy the shape of an existing record (Context, Decision, Consequences), take the next
 number, add it to this table, and link it from the code or docs it explains.

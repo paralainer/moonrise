@@ -22,8 +22,10 @@ streams. It needs no other media server. The streams:
 - **Subtitle search** on OpenSubtitles.com (Moonrise's built-in key; anonymous, or with an account);
   fetched subtitles become tracks of the title on every device.
 - **Video transcoded** when needed (below), on an NVIDIA, Intel or AMD GPU, else the CPU: a
-  quality ladder, codecs Apple devices can't play, HDR tone-mapped for SDR displays, bitmap
-  subtitles burned in. Every variant has the copied original's segment timeline.
+  quality ladder, codecs Apple devices can't play, HDR tone-mapped for SDR displays. Every
+  variant has the copied original's segment timeline.
+- **Picture subtitles** (PGS, DVD, DVB) decoded here and served as timed images that the apps
+  draw over the video, which plays as it is.
 
 ## Rules for changing the server
 
@@ -144,7 +146,7 @@ timestamps (snapped to the source's frame grid for DTS/MPEG audio/FLAC), so segm
 different runs join without a gap, an overlap or a click. A new run's first segment is ready
 in about a second.
 
-**Video transcode** (`media/transcode.rs`). `GET /v1/items/{id}/playback?quality=<bps>&hdr=0|1&burn=<index>`
+**Video transcode** (`media/transcode.rs`). `GET /v1/items/{id}/playback?quality=<bps>&hdr=0|1`
 answers with the title's ladder (`variants[]`, best first) and the one played (`variant`); the
 master lists that one (with `abr=1`, the lower ones too).
 
@@ -156,8 +158,7 @@ master lists that one (with `abr=1`, the lower ones too).
   the load's own probe (a title opened before the scan has probed it), else its size over its
   duration; at least 1 Mb/s.
 - *HDR*: kept for HDR displays (HEVC Main 10, PQ/HLG tags); with `hdr=0` every variant,
-  "Original" too, is tone-mapped to SDR H.264 (`tonemap_cuda`, BT.2390). Burn-in always
-  tone-maps (the overlay is 8-bit). Dolby Vision without an HDR10 base layer is never transcoded.
+  "Original" too, is tone-mapped to SDR H.264 (`tonemap_cuda`, BT.2390). Dolby Vision without an HDR10 base layer is never transcoded.
 - *Dolby Vision*: the copy keeps the RPUs. Players that show Dolby Vision send `dv=1`; their
   master then says so for the "Original" (profile 8.1/8.4: `SUPPLEMENTAL-CODECS="dvh1.08.LL/db1p"`
   or `db4h` next to `hvc1`; profile 5: `CODECS="dvh1.05.LL"`, entry `dvh1`), and its init section
@@ -165,9 +166,6 @@ master lists that one (with `abr=1`, the lower ones too).
   Others play the base layer (HDR10/HLG) as before. Profile 7 and 8.2 aren't signalled. The
   Apple players send `dv=1` for a display with Dolby Vision; Android TV when the display lists it
   and a `video/dolby-vision` decoder exists (Media3 1.6+ reads `SUPPLEMENTAL-CODECS`).
-- *Burn-in*: `burn=<track index>` of an embedded PGS/DVD/DVB track: decoded to pictures
-  (sub2video, from a second reading of the file 20 s earlier, so a line already on screen at
-  the start is drawn), scaled, `overlay_cuda` on the frame.
 - *One timeline*: NVENC is forced to an IDR at exactly the copy's boundaries (`-force_key_frames`
   5 ms early, `-forced-idr`, no B-frames, no scene-cut or periodic keyframes), timestamps stay
   the file's (`-copyts`, `-enc_time_base demux`, `-fps_mode passthrough`), and the init has no
@@ -196,7 +194,7 @@ master lists that one (with `abr=1`, the lower ones too).
   1080p, threads = cores − 1 shared by the slots). QSV/VA-API are tested with a 5-frame encode
   first; HEVC Main 10 and GPU tone-mapping are tested apart (without them HDR is tone-mapped to
   H.264 in every transcode, on the CPU when the GPU can't, and the HDR copy stays for HDR screens).
-  On those backends burned-in subtitles are laid over on the CPU. The same timeline rules hold
+  The same timeline rules hold
   (IDR at the boundaries: NVENC/x264 `forced-idr`, QSV `forced_idr`, VA-API's forced frames are
   IDRs). `GET /v1/admin/system` → `transcoding` (`nvenc|qsv|vaapi|cpu|off|unavailable`) and
   `transcode` (the chain, notes). See [docs/hardware-transcoding.md](../hardware-transcoding.md).
@@ -247,6 +245,23 @@ one (the token, or `sid=` of a session playing it).
   app shows windows meanwhile); old apps waiting for the `.srt` still make it urgent.
   Measured (cold titles, the share busy): indexed MKV Play→first cue 0.03-0.35 s (0.8.0: 13 s),
   unindexed 0.2-2 s (0.8.0: 45-90 s), MP4 0.1-0.2 s (0.8.0: 40 s); a seek to 90 min the same.
+- *Picture tracks* (`subtitles/pictures.rs`, `bitmap.rs`; capability `subtitle-pictures`):
+  embedded PGS, DVD (VobSub) and DVB tracks are served through the same windows as images,
+  never burned into the video (until 0.33.0 they were, with a transcode: about 7 s to the first
+  segment on 2 CPUs instead of 0.05-0.09 s). The window adds `canvas {width, height}` (the frame
+  the pictures were made for: PGS's composition size, the VobSub `.idx` size, the DVB display
+  definition, else 720×576) and each cue `image {x, y, width, height, png}` (base64, trimmed to
+  what isn't transparent, a few KB); `text` is empty and `complete` always false. A window reads
+  the track's blocks starting 10 s before it to 10 s after it (a picture still showing, and the
+  end of the last one: PGS and DVB clear the screen with a later packet; a picture whose end
+  isn't in that shows at most 10 s): Matroska by the index or by scanning those clusters, the
+  blocks' zlib or header stripping undone (mkvmerge compresses these tracks), else ffprobe's
+  packets (`-read_intervals`, `-show_data`). Decoded here: PGS display sets (epochs, palettes,
+  cropped objects, BT.709 above 576 lines), VobSub subpictures (2-bit RLE in two fields, the
+  `.idx` palette, start and stop delays), DVB pages (regions, CLUTs, 2/4/8-bit objects, page
+  timeouts). Windows are kept in memory (48 MB of PNG), one read per window at a time. Measured
+  on the test files (1080p MKV, local disk): 2-4 ms a window; a `.ts` by ffprobe 40 ms. Only
+  embedded tracks in these three formats are listed; sidecar `.sup`/`.sub` files aren't read.
 - *WebVTT* (for PiP and AirPlay): segments of 30 s (`subs/<index>/<n>.vtt`) are the windows
   above, so they carry cues from the start (a segment answers without cues only after 6 s:
   AVPlayer fails the whole stream when a selected rendition stalls); `cues.vtt` is still the
@@ -799,7 +814,7 @@ sets it), `RUST_LOG`, `MOONRISE_MDNS_INTERFACES`, `MOONRISE_BROWSE_ROOTS`, `MOON
 switches `db` and `moonrise_auth` (`MOONRISE_DISABLE`), and the LLM's advanced knobs
 (`MOONRISE_LLM_ANTHROPIC_VERSION`, `_EFFORT`, `_MAX_TOKENS`, `_TIMEOUT_SECS`, `_VOTES`,
 `_EXTRA_HEADERS`). The switches: `db`, `probe_cache`, `convert`, `mp4_index`, `scan_index`,
-`transcode`, `burn`, `subs_extract` (no text subtitles then), `subs_windows` (windows off: apps
+`transcode`, `subs_extract` (no text subtitles then), `subs_windows` (windows off: apps
 fetch whole tracks), `subs_backfill` (no library backfill), `subs_sync` (fetched and uploaded
 subtitles served as they are), `index_backfill` (keyframe indexes made only when a title is first
 played), `credits_detect` (end credits not looked for in episodes' files), `downloads`, `opensubtitles`,
@@ -820,7 +835,7 @@ compose file afterwards.
   `fields["llm.model"]` = `{source: env|file|store|builtin|default, env?: "<VARIABLE>", apply:
   live|restart|env-only, restart_pending?: true}`.
 - `PATCH /v1/admin/settings` with the same shape, partial, nested or dotted (`{"metadata.country":
-  "GB", "tmdb": {"api_key": "…"}, "features": {"burn": false}}`); `null` or `""` removes a value
+  "GB", "tmdb": {"api_key": "…"}, "features": {"convert": false}}`); `null` or `""` removes a value
   (back to the default). Answers the document plus `changed`, `overridden_by_env` (stored, but
   a variable wins) and `restart_required` (stored; the server runs with the old value until it
   restarts).

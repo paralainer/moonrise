@@ -10,9 +10,8 @@
                                      the default audio and every converted audio track (whose two
                                      consecutive segments must also join without a gap or overlap)
   matrix.py --check transcode        for supported samples, each transcoded case (the lowest
-                                     ladder rung; hdr=0 for HDR; burn-in of the first bitmap
-                                     subtitle; the re-encoded original of codecs that can't be
-                                     copied), opened mid-title: init and two segments; each
+                                     ladder rung; hdr=0 for HDR; the re-encoded original of
+                                     codecs that can't be copied), opened mid-title: init and two segments; each
                                      segment's first fragment at its boundary, the second
                                      starting where the first ends, the same segment timeline as
                                      the copy, H.264/HEVC sample entry; DELETE closes the session.
@@ -304,9 +303,6 @@ def transcode_cases(s, info):
         cases.append((f"q{lowest[-1]['bitrate']}", f"&quality={lowest[-1]['bitrate']}"))
     if (info.get("video") or {}).get("range", "SDR") != "SDR":
         cases.append(("hdr0", "&hdr=0"))
-    bitmap = [t for t in info.get("subtitles", []) if t.get("text") is False]
-    if bitmap:
-        cases.append((f"burn{bitmap[0]['index']}", f"&burn={bitmap[0]['index']}"))
     return cases
 
 

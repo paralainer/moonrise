@@ -75,8 +75,7 @@
         "codec": "h264",
         "range": "SDR",
         "transcode": false,
-        "tonemap": false,
-        "burn": null
+        "tonemap": false
       }
     ],
     "variant": "copy",

@@ -906,7 +906,6 @@ paths:
         - $ref: '#/components/parameters/StreamStart'
         - $ref: '#/components/parameters/StreamHdr'
         - $ref: '#/components/parameters/StreamQuality'
-        - $ref: '#/components/parameters/StreamBurn'
         - $ref: '#/components/parameters/StreamAbr'
         - $ref: '#/components/parameters/StreamDv'
         - $ref: '#/components/parameters/StreamLossless'
@@ -937,7 +936,6 @@ paths:
         - $ref: '#/components/parameters/StreamStart'
         - $ref: '#/components/parameters/StreamHdr'
         - $ref: '#/components/parameters/StreamQuality'
-        - $ref: '#/components/parameters/StreamBurn'
         - $ref: '#/components/parameters/StreamAbr'
         - $ref: '#/components/parameters/StreamDv'
         - $ref: '#/components/parameters/StreamLossless'
@@ -1462,12 +1460,18 @@ paths:
     get:
       tags: [subtitles]
       operationId: getSubtitleCues
-      summary: The cues of one 30-second window of a text track
+      summary: The cues of one 30-second window of a subtitle track
       description: |
         Window `k` is the file's time [30k, 30k+30). Read for that window alone while the track
         isn't extracted, so a track shows from the first second and right after a seek.
         `complete: true`: the whole track is ready, fetch the `.srt` once instead. The token, or
         `sid=`. Capability `subtitle-windows`.
+
+        A picture track (PGS, DVD, DVB; `text: false`) answers the same way, with images: the
+        window's `canvas` (the frame the pictures are placed on, which the app scales onto the
+        video it shows, width and height separately) and each cue's `image` (its place on the
+        canvas and a PNG, base64). `text` is empty and `complete` is always false. The video
+        plays as it is: nothing is burned in. Capability `subtitle-pictures`.
       security:
         - bearer: []
         - adminToken: []
@@ -1503,6 +1507,8 @@ paths:
               examples:
                 window0:
                   $ref: examples/subtitle-cues.json
+                pictures:
+                  $ref: examples/subtitle-picture-cues.json
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -4097,12 +4103,6 @@ components:
         type: integer
         minimum: 1
         examples: [4000000]
-    StreamBurn:
-      name: burn
-      in: query
-      description: A bitmap subtitle track (PGS, DVD) to burn into a transcoded variant (capability `burn-in`).
-      schema:
-        type: integer
     StreamAbr:
       name: abr
       in: query
@@ -5462,7 +5462,9 @@ components:
           type: [integer, 'null']
         text:
           type: boolean
-          description: Text (a WebVTT rendition) or bitmap (can be burned in, `burn=`).
+          description: |
+            Text (a WebVTT rendition), or pictures (PGS, DVD, DVB): served as images in the
+            subtitle windows (`cues`), which the app draws over the video.
         codec:
           type: string
         name:
@@ -5485,7 +5487,7 @@ components:
           $ref: '#/components/schemas/SubtitleTiming'
     Variant:
       type: object
-      required: [id, label, bitrate, width, height, codec, range, transcode, tonemap, burn]
+      required: [id, label, bitrate, width, height, codec, range, transcode, tonemap]
       properties:
         id:
           type: string
@@ -5507,8 +5509,6 @@ components:
           type: boolean
         tonemap:
           type: boolean
-        burn:
-          type: [integer, 'null']
 
     Report:
       type: object
@@ -5523,7 +5523,7 @@ components:
           description: The audio track's index (accepted, not used; see `tracks`).
         subtitle:
           type: integer
-          description: The burned-in subtitle track's index (accepted, not used; see `tracks`).
+          description: The subtitle track's index (accepted, not used; see `tracks`).
         credits:
           type: number
           description: Where the end credits the app offers start (seconds), if it has any.
@@ -5637,7 +5637,16 @@ components:
           description: The whole track is ready; fetch the `.srt` instead of windows.
         source:
           type: string
-          enum: [file, memory, index, scan, mp4, ffmpeg]
+          enum: [file, memory, index, scan, mp4, ffmpeg, ffprobe]
+        canvas:
+          type: object
+          description: Picture tracks, the frame the images are placed on.
+          required: [width, height]
+          properties:
+            width:
+              type: integer
+            height:
+              type: integer
         cues:
           type: array
           items:
@@ -5650,6 +5659,23 @@ components:
                 type: number
               text:
                 type: string
+                description: Empty for a picture.
+              image:
+                type: object
+                description: Picture tracks, the picture and its place on the canvas.
+                required: [x, y, width, height, png]
+                properties:
+                  x:
+                    type: integer
+                  y:
+                    type: integer
+                  width:
+                    type: integer
+                  height:
+                    type: integer
+                  png:
+                    type: string
+                    contentEncoding: base64
     SubtitleSearch:
       type: object
       required: [results, remaining_downloads, quota]
@@ -6624,8 +6650,6 @@ components:
                 type: [string, 'null']
               tonemap:
                 type: boolean
-              burn:
-                type: [integer, 'null']
               duration:
                 type: [number, 'null']
               position:

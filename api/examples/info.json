@@ -18,6 +18,7 @@
       "subtitle-extract",
       "subtitle-files",
       "subtitle-windows",
+      "subtitle-pictures",
       "subtitle-timing",
       "subtitle-sync",
       "download-original",
@@ -43,7 +44,6 @@
       "video-transcode",
       "quality-ladder",
       "hdr-tonemap",
-      "burn-in",
       "setup-claim",
       "scan-progress",
       "trickplay"

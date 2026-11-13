@@ -12,8 +12,7 @@
       "codec": "h264",
       "range": "SDR",
       "transcode": false,
-      "tonemap": false,
-      "burn": null
+      "tonemap": false
     },
     "duration": 150.021,
     "segments": 25,
