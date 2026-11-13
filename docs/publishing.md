@@ -41,6 +41,9 @@ everything the App Store Connect API allows, on the build Mac, with fastlane
 
 **Once, on the build Mac** (`scripts/mac.env` names the files; nothing secret is in the repository):
 
+- `RELEASE_MAC=user@host` in `scripts/mac.env` names that Mac. Releases use only it, never `MAC`
+  or `FASTLANE_MAC`, which may point at someone's own Mac; list such Macs in `PERSONAL_MACS` and
+  the script refuses them.
 - Xcode, XcodeGen and fastlane (Homebrew), and in the login keychain the certificates
   *Apple Distribution* and, for the Mac's installer package, *3rd Party Mac Developer Installer*.
   `MAC_UNLOCK` unlocks the keychain over SSH.
@@ -75,8 +78,8 @@ everything the App Store Connect API allows, on the build Mac, with fastlane
    [demo.md](demo.md); the Mac's, 2880 x 1800, are taken by hand on a Mac with
    macOS 26, as `mac/en-US/*.jpg`). `status` shows what App Store Connect has.
 7. `scripts/release-apple.sh review` attaches the newest processed build to each platform's version
-   with the review notes; `submit ios,tvos,mac --yes` sends them to App Review, with manual release
-   once approved. Submitting is the maintainers' decision, never a script's default.
+   with the review notes; `submit ios,tvos,mac --yes` sets each version to manual release (and
+   reads it back, stopping when it isn't), then sends it to App Review. Submitting is the maintainers' decision, never a script's default.
 
 **Lessons from App Review.** A new developer account can get a Mac "2.1 Information Needed"
 asking for a screen recording on a physical Mac with the latest macOS, and for the app's purpose,
