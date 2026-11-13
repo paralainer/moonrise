@@ -51,8 +51,7 @@ at 0.1.0); app changes that shipped together with a server release are listed un
 - Licences: the server (`server/`) is now under the AGPL-3.0-or-later (`server/LICENSE`); the apps,
   the API description, tooling and docs are under the MPL-2.0 (`LICENSE`). They were GPL-3.0-or-later.
   The name and icon are covered by [TRADEMARKS.md](TRADEMARKS.md), not by the code licences.
-- Apps: the Subtitles menu no longer adds "(burned in)" to picture tracks' names, and tracks picked
-  earlier with those words are still found.
+- Apps: the Subtitles menu no longer adds "(burned in)" to picture tracks' names.
 - The GitHub Actions workflows run only when started by hand. The local check
   (`scripts/test-all.sh`) is the gate for changes; see `CONTRIBUTING.md`.
 - The Apple apps' project moved to `clients/apple/`, beside `clients/android/`. A git-ignored

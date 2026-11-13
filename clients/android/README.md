@@ -179,8 +179,8 @@ the display, so a screenshot of the player is blank.
     the title's default. Audio the TV can't decode (AC-3, E-AC-3, DTS, TrueHD without a receiver)
     is decoded in software (`media3-ffmpeg-decoder`).
   - **Subtitles:** text tracks are the server's files, drawn by the app (an embedded track is read
-    in 30 s windows at the playhead until the server has all of it); bitmap tracks (PGS, DVD) are
-    burned in by the server. Turned on by themselves in the language set in Settings (SDH or plain,
+    in 30 s windows at the playhead until the server has all of it); picture tracks (PGS, DVD, DVB)
+    are drawn the same way from the server's images. Turned on by themselves in the language set in Settings (SDH or plain,
     as picked last), else forced ones in the audio's language. The Subtitles menu has Style (size,
     background box), Delay (kept on the server per file and track, for every device; Use Original
     Timing when the server synced a downloaded track) and Search Online (OpenSubtitles through the

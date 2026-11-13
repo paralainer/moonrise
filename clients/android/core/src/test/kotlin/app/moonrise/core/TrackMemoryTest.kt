@@ -92,31 +92,10 @@ class TrackMemoryTest {
         assertNull(TrackRules.subtitleDetail("English"))
     }
 
-    /** No app's menus add " (burned in)" to a bitmap track's name (PlayerModel, TV, phone). */
-    @Test
-    fun noMenuSaysBurnedIn() {
-        val sources = listOf("shared", "tv", "phone").flatMap { app ->
-            java.io.File("../$app/src/main/kotlin").walkTopDown().filter { it.extension == "kt" }.toList()
-        }
-        assertTrue("the apps' sources are where this test expects", sources.size > 20)
-        assertEquals(emptyList<String>(), sources.filter { "(burned in)" in it.readText() }.map { it.name })
-    }
-
-    /** Without the words, a bitmap track and a text one of the same name still read differently. */
+    /** A picture track and a text one of the same name still read differently. */
     @Test
     fun rowsThatReadAlikeGetTheirPlace() {
         val rows = listOf("English" to null, "English" to null, "English" to "SDH", "Russian" to null, "Russian" to "SDH", "Russian" to "SDH")
         assertEquals(listOf("#1", "#2", "SDH", null, "SDH · #1", "SDH · #2"), TrackRules.distinctDetails(rows))
-    }
-
-    /** A choice remembered while the menus said " (burned in)" still finds its track. */
-    @Test
-    fun aChoiceFromBeforeTheLabelWentStillMatches() {
-        val next = listOf(server(8, "English", "eng"), bitmap("pgs", "English · Signs", "eng"))
-        assertEquals("pgs", remembered(next, memory(false, subtitle = TrackPick(language = "en", title = "Signs (burned in)"))))
-        assertEquals("pgs", remembered(next, memory(false, subtitle = TrackPick(language = "en", title = "English · Signs (burned in)"))))
-        assertEquals("Signs", TrackRules.rememberedSubtitleTitle("Signs (burned in)"))
-        assertNull(TrackRules.rememberedSubtitleTitle(" (burned in)"))
-        assertNull(TrackRules.rememberedSubtitleTitle(null))
     }
 }

@@ -159,7 +159,7 @@ Past bugs and the tests that guard them. Add a row with every fix, saying what b
 | The app called TheIntroDB and IntroDB itself; now the server's merged segments, asked again while it looks a title up | `SegmentRulesCasesTest.theSharedCases`, `SegmentsTest.serviceAsksForTheMergedAnswerAndCachesOnlyFinalOnes`, `anOlderServersAnswerGetsTheRulesWithoutDatabases`. That no other host is contacted: checked in the emulator through a logging proxy, not automated |
 | No credits while the server waits for the community databases; an answer that isn't final is asked for again 10 and 2 minutes before the end | `SegmentRulesCasesTest.theSharedCases` (`community_pending` cases), `askedAgainNearTheEnd` |
 | Resuming didn't keep the audio and subtitle tracks picked in the title; the next episode gets the same language and kind | `TrackMemoryTest` (the same cases as the Apple apps'); `APIExamplesTest` (`playback.json` `tracks`) |
-| Bitmap subtitle tracks said " (burned in)" in the menus (TV and phone); a choice remembered with those words still matches, and rows that would read alike get their place | `TrackMemoryTest.noMenuSaysBurnedIn`, `aChoiceFromBeforeTheLabelWentStillMatches`, `rowsThatReadAlikeGetTheirPlace` |
+| A picture subtitle track and a text one of the same name read alike in the menus (TV and phone): rows that would read alike get their place | `TrackMemoryTest.rowsThatReadAlikeGetTheirPlace` |
 | Card captions were one line | `MoonriseApiTest.cardLabelsAsOnAppleTv` |
 | Retries didn't back off | `ClientRulesTest.retriesBackOff` |
 | An audio switch during a burned-in stream got stuck buffering | `ClientRulesTest.loadingGoesOnWhileATrackHasRunDry` |
