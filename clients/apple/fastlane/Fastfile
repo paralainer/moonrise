@@ -278,7 +278,8 @@ platform :ios do
 
   # Submitting is the owner's call: the script passes confirm:yes only when told to.
   lane :submit do |options|
-    UI.user_error!("submit needs confirm:yes") unless options[:confirm].to_s == "yes"
+    # fastlane turns the command-line value "yes" into true before the lane sees it.
+    UI.user_error!("submit needs confirm:yes") unless [true, "yes"].include?(options[:confirm])
     key = asc_key
     app = app!
     platform_list(options).each do |name|
