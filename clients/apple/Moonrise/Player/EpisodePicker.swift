@@ -39,6 +39,11 @@ struct EpisodePickerView: View {
             #endif
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } }
         }
+        #if os(macOS)
+        // A sheet over the window: without a size it's a sliver (the list has none of its own).
+        .frame(minWidth: EpisodeSheetSize.min.width, idealWidth: EpisodeSheetSize.ideal.width,
+               minHeight: EpisodeSheetSize.min.height, idealHeight: EpisodeSheetSize.ideal.height)
+        #endif
         .preferredColorScheme(.dark)
     }
 

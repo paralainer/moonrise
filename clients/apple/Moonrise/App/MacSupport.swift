@@ -16,7 +16,7 @@ final class MacWindow {
     private(set) var isFullScreen = false
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
 
-    static let minSize = CGSize(width: 800, height: 540)
+    static let minSize = MacWindowSize.min
 
     func attach(_ w: NSWindow) {
         guard w !== window else { return }
@@ -56,12 +56,29 @@ final class MacWindow {
                 }
             },
         ]
+        // Back from another app, the window key again, a sheet closed: SwiftUI rebuilds the
+        // window's toolbar then and shows it. Hidden again (after SwiftUI's update) while the
+        // player fills the screen.
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didEndSheetNotification, NSWindow.willBeginSheetNotification] {
+            observers.append(nc.addObserver(forName: name, object: w, queue: .main) { _ in
+                MainActor.assumeIsolated { MacWindow.shared.applyToolbarSoon() }
+            })
+        }
+        observers.append(nc.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { MacWindow.shared.applyToolbarSoon() }
+        })
     }
 
-    /// The toolbar (tabs, back button) shows unless the player fills the screen.
+    /// The toolbar (tabs, back button) shows unless the player fills the screen
+    /// (`PlayerChrome.toolbarVisible`). RootView says the same to SwiftUI.
     func applyToolbar() {
-        let visible = !MacPlayerHub.shared.playerFullScreen
+        let visible = MacPlayerHub.shared.chrome.toolbarVisible
         if let toolbar = window?.toolbar, toolbar.isVisible != visible { toolbar.isVisible = visible }
+    }
+
+    /// After the view update in progress (SwiftUI puts its toolbar back in it).
+    func applyToolbarSoon() {
+        DispatchQueue.main.async { MainActor.assumeIsolated { MacWindow.shared.applyToolbar() } }
     }
 
     func setFullScreen(_ on: Bool) {
@@ -89,11 +106,16 @@ final class MacPlayerHub {
     static let shared = MacPlayerHub()
     /// Set while a player shows and no sheet covers it.
     private(set) var model: PlayerModel?
-    @ObservationIgnored private var owner: UUID?
+    /// The player's full screen, its sheets, and so the toolbar and the keys.
+    private(set) var chrome = PlayerChrome() {
+        didSet { if chrome.toolbarVisible != oldValue.toolbarVisible { MacWindow.shared.applyToolbar() } }
+    }
     /// The player fills the window (and the screen): no toolbar (tabs, back button) over it, as
-    /// in QuickTime and the TV app; it comes back when the player leaves full screen.
-    var playerFullScreen = false {
-        didSet { if playerFullScreen != oldValue { MacWindow.shared.applyToolbar() } }
+    /// in QuickTime and the TV app; it comes back when the player leaves full screen. A sheet over
+    /// the player (Episodes, Find Subtitles) leaves it as it is.
+    var playerFullScreen: Bool {
+        get { chrome.playerFullScreen }
+        set { chrome.playerFullScreen = newValue }
     }
     @ObservationIgnored var toggleFullScreen: (() -> Void)?
     /// The window left full screen on its own: the player's full screen ends with it.
@@ -113,21 +135,21 @@ final class MacPlayerHub {
     }
     var muted = false { didSet { apply() } }
 
-    func register(_ id: UUID, model: PlayerModel, fullScreen: Bool, toggle: (() -> Void)?,
+    /// The player on screen, again whenever its full screen or sheets change. While a sheet is
+    /// over it the menu and keys leave it alone (`model` is nil), but it stays full screen.
+    func register(_ id: UUID, model: PlayerModel, fullScreen: Bool, sheetOpen: Bool, toggle: (() -> Void)?,
                   feedback: @escaping (GestureHUD?) -> Void) {
-        owner = id
-        if self.model !== model { self.model = model }
-        playerFullScreen = fullScreen
+        chrome.register(id, fullScreen: fullScreen, sheetOpen: sheetOpen)
+        let driven = chrome.drivesPlayer ? model : nil
+        if self.model !== driven { self.model = driven }
         toggleFullScreen = toggle
         self.feedback = feedback
         apply()
     }
 
     func unregister(_ id: UUID) {
-        guard owner == id else { return }
-        owner = nil
+        guard chrome.unregister(id) else { return }
         model = nil
-        playerFullScreen = false
         toggleFullScreen = nil
         feedback = nil
     }

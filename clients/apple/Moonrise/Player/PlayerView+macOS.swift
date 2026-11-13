@@ -40,17 +40,15 @@ extension PlayerScreen {
     }
 
     /// Tells the Playback menu this is the player to drive (not while one of its sheets is up:
-    /// the keys belong to the sheet's fields then).
+    /// the keys belong to the sheet's fields then), and whether it fills the screen (it still
+    /// does under a sheet: the window's toolbar stays hidden).
     func registerWithMenu() {
         let hub = MacPlayerHub.shared
-        if showSubtitleSearch || showEpisodes {
-            hub.unregister(hubID)
-            return
-        }
         #if DEBUG
         hub.debugState = { "controls=\(model.controlsVisible) hovering=\(hovering) scrubbing=\(scrubbing.map { "\(Int($0))" } ?? "-") keyFocus=\(keyFocus) inlineFull=\(inline?.fullScreen.description ?? "-")" }
         #endif
-        hub.register(hubID, model: model, fullScreen: macFullScreen, toggle: fullScreenAction) { level in
+        hub.register(hubID, model: model, fullScreen: macFullScreen, sheetOpen: showSubtitleSearch || showEpisodes,
+                     toggle: fullScreenAction) { level in
             showControls()
             guard let level else { return }
             hud = level
