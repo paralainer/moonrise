@@ -5,23 +5,22 @@ iPhone, iPad, Mac, Apple TV, Android TV, Android phones and tablets, and Windows
 server on a NAS, a home server, a Mac or a Raspberry Pi, open the app, and it guides you through
 the rest. Your library, your devices, your network: no account with anyone, no cloud in between.
 
-<!-- Screenshots to add before publishing (docs/screenshots/):
-     iphone-home.png        Home with the banner and Recently Added rows
-     iphone-title.png       a title page playing inline
-     ipad-library.png       Library grid with filters
-     mac-player.png         the player with the subtitle and audio menus
-     tv-home.png            Apple TV Home (showcase)
-     tv-player.png          Apple TV player with the Info panel
-     android-tv-home.png    Android TV Home
-     windows-title.png      the Windows app's title page
-     setup-code.png         the setup flow: code → account → library → live scan
-     manage-server.png      Manage Server → Playback & Hardware -->
+<p align="center">
+  <img src="site/shots/tv-home.webp" width="800" alt="Moonrise on Apple TV: Big Buck Bunny on Home, with its year, 720p, 5.1, genres and plot.">
+</p>
+<p align="center">
+  <img src="site/shots/iphone-downloads.webp" height="440" alt="The Downloads screen on iPhone: Elephants Dream at 57 percent with “Tap to play now”, and Big Buck Bunny and Sintel ready to watch.">
+  &nbsp;
+  <img src="site/shots/iphone-manage.webp" height="440" alt="Manage Server on iPhone: Libraries, Fix Match, Users and Devices, Services, Playback and Hardware, Activity, and About This Server.">
+</p>
+
+<sub>The library in the screenshots is the Blender Foundation's open movies ([credits](site/CREDITS.md)).</sub>
 
 ## Status
 
 Moonrise is **pre-release**. It is in daily use, but nothing is in an app store yet and the
 server image isn't published: for now you build the server and the apps from this repository
-(below). The server is at version 0.32.0 ([CHANGELOG.md](CHANGELOG.md)); the apps are at 0.1.0.
+(below). The server is at version 0.33.0 ([CHANGELOG.md](CHANGELOG.md)); the apps are at 0.1.0.
 
 | Platform | Folder | Built with | State |
 |---|---|---|---|
@@ -60,7 +59,7 @@ You need Docker with the compose plugin on the machine that will run the server,
 1. **Build and run the server** from a clone of this repository:
 
    ```sh
-   git clone <this repository's URL> moonrise
+   git clone https://github.com/paralainer/moonrise.git moonrise
    cd moonrise/server
    docker compose up -d --build      # the first build takes a few minutes
    ```

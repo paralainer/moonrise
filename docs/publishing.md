@@ -25,9 +25,9 @@ changes them to its own account.
 
 1. Repository secrets `MOONRISE_BUILTIN_TMDB_KEY`, `MOONRISE_BUILTIN_OPENSUBTITLES_KEY` (the project's
    keys; they are compiled into release images only).
-2. Tag `v<version>` (the version in `server/Cargo.toml`, e.g. `v0.32.0`), then run the Server
+2. Tag `v<version>` (the version in `server/Cargo.toml`, e.g. `v0.33.0`), then run the Server
    workflow by hand on that tag (Actions → Server → Run workflow; it is manual only): it tests,
-   builds linux/amd64 + linux/arm64 and pushes `ghcr.io/paralainer/moonrise-server:{0.32.0,0.32,latest}`. Make the package public (GitHub → Packages →
+   builds linux/amd64 + linux/arm64 and pushes `ghcr.io/paralainer/moonrise-server:{0.33.0,0.33,latest}`. Make the package public (GitHub → Packages →
    moonrise-server → Settings → Visibility).
 3. Unraid: submit `server/packaging/unraid/moonrise-server.xml` to a Community Applications template
    repository (or host the template in the repo and add its URL).
