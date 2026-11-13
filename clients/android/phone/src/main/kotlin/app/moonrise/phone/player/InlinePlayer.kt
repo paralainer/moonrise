@@ -60,6 +60,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -175,7 +176,7 @@ fun InlinePlayer(host: PlayerHost, fullScreen: Boolean, onBack: () -> Unit, modi
         )
 
         // Picture subtitles where the track places them on the picture (cropped with it when it fills the screen).
-        Box(Modifier.fillMaxSize().pictureSubtitles(model) { host.fill })
+        Box(Modifier.fillMaxSize().pictureSubtitles(model, fill = { host.fill }, raisedBottom = { if (controls) raisedSubtitleBottom(fullScreen) else null }))
         BoxWithConstraints(Modifier.fillMaxSize()) {
             SubtitleText(model.subtitleText.takeIf { !model.recovering && model.failure == null }, raised = controls, fullScreen = fullScreen)
             // Taps, double taps, pinches; full screen, brightness and volume.
@@ -274,13 +275,16 @@ fun InlinePlayer(host: PlayerHost, fullScreen: Boolean, onBack: () -> Unit, modi
     if (search) SubtitleSearchSheet(model, onDismiss = { search = false })
 }
 
+/** The space below subtitles while the controls show (text, and picture subtitles in the lower half). */
+private fun raisedSubtitleBottom(fullScreen: Boolean): Dp = if (fullScreen) 110.dp else 52.dp
+
 /** Text subtitles, drawn by the app: white with a shadow, or on a box; higher while the controls show. */
 @Composable
 private fun SubtitleText(text: String?, raised: Boolean, fullScreen: Boolean) {
     if (text.isNullOrBlank()) return
     val size = (if (fullScreen) 20.sp else 15.sp) * AppSettings.subtitleScale
     val box = AppSettings.subtitleBackground
-    val bottom = when { raised && fullScreen -> 110.dp; raised -> 52.dp; fullScreen -> 24.dp; else -> 10.dp }
+    val bottom = when { raised -> raisedSubtitleBottom(fullScreen); fullScreen -> 24.dp; else -> 10.dp }
     Box(Modifier.fillMaxSize().padding(bottom = bottom, start = 24.dp, end = 24.dp), contentAlignment = Alignment.BottomCenter) {
         Text(text, color = Color.White, fontSize = size, lineHeight = size * 1.2f, textAlign = TextAlign.Center, fontWeight = FontWeight.Medium,
             style = if (box) TextStyle.Default else TextStyle(shadow = Shadow(Color.Black, blurRadius = 6f)),
