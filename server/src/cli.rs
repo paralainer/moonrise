@@ -68,7 +68,6 @@ pub async fn run() -> Result<()> {
         "keyframes-test" => keyframes_test(&args[1..]).await,
         "credits-test" => credits_test(&config, &args[1..]).await,
         "migrate-root" => migrate_root(&config, &args),
-        "merge-libraries" => merge_libraries(&config, &args),
         "smb-credential" => smb_credential(&config, &args).await,
         other => bail!("unknown command {other}"),
     }
@@ -259,29 +258,6 @@ fn migrate_root(config: &config::Config, args: &[String]) -> Result<()> {
         cred.as_deref(),
         apply,
     )?;
-    println!("{}", serde_json::to_string_pretty(&r)?);
-    if !apply {
-        eprintln!("(a dry run: --apply to change it; stop the server first)");
-    }
-    Ok(())
-}
-
-/// One-off (undocumented): the production server's two typed libraries made one.
-fn merge_libraries(config: &config::Config, args: &[String]) -> Result<()> {
-    let name = args.iter().position(|a| a == "--name").and_then(|i| args.get(i + 1)).cloned();
-    let pos: Vec<&String> = args[1..]
-        .iter()
-        .filter(|a| !a.starts_with("--") && Some(*a) != name.as_ref())
-        .collect();
-    let (Some(into), Some(from)) = (pos.first(), pos.get(1)) else {
-        bail!("merge-libraries <into> <from> [--name <name>] [--apply]")
-    };
-    anyhow::ensure!(
-        std::env::var_os("MOONRISE_LIBRARIES").is_none(),
-        "MOONRISE_LIBRARIES is set: the libraries come from the environment"
-    );
-    let apply = args.iter().any(|a| a == "--apply");
-    let r = migrate::merge_libraries(&config.data_dir.join("moonrise.db"), into, from, name.as_deref(), apply)?;
     println!("{}", serde_json::to_string_pretty(&r)?);
     if !apply {
         eprintln!("(a dry run: --apply to change it; stop the server first)");

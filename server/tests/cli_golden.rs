@@ -142,8 +142,6 @@ fn cli_golden() {
         (vec!["migrate-root"], ""),
         (vec!["migrate-root", "/media/a"], ""),
         (vec!["migrate-root", "/media/a", "smb://nas/share", "--credential", "c1"], ""),
-        (vec!["merge-libraries"], ""),
-        (vec!["merge-libraries", "films", "shows", "--name", "Everything"], ""),
         (vec!["subs-test"], ""),
         (vec!["keyframes-test", "/nonexistent/a.mkv"], ""),
         (vec!["credits-test"], ""),
