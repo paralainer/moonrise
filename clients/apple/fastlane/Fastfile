@@ -213,15 +213,23 @@ platform :ios do
 
   lane :metadata do |options|
     key = asc_key
-    app!
-    # Without a contact the texts still go up; the review notes and contact wait for one (review sets them too).
+    app = app!
+    # Without a contact the texts still go up, with the review notes; the contact waits for one
+    # (review sets it too).
     review_info = begin
       review_contact!.merge(demo_required: false, notes: review_notes)
     rescue FastlaneCore::Interface::FastlaneError => e
-      UI.important("#{e.message}: the review notes and contact are left as they are")
+      UI.important("#{e.message}: the review contact is left as it is")
       {}
     end
     platform_list(options).each do |name|
+      # deliver reads the version's App Review details and fails ("No data") on a first version
+      # that has none yet: make them, with the notes.
+      version = editable_version(app, name)
+      unless (version.fetch_app_store_review_detail rescue nil)
+        version.create_app_store_review_detail(attributes: { notes: review_notes, demoAccountRequired: false })
+        UI.message("#{name}: App Review notes set")
+      end
       deliver(api_key: key, app_identifier: moonrise_bundle_id, platform: platform!(name)[:fastlane], app_version: store_version,
               metadata_path: File.join(FASTLANE_DIR, "metadata"), skip_binary_upload: true, skip_screenshots: true,
               app_review_information: review_info, submit_for_review: false, force: true, run_precheck_before_submit: false)
