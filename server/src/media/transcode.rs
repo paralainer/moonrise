@@ -2047,13 +2047,11 @@ pub(crate) mod tests {
     /// with "no transcode slot free": the stop was lost).
     #[tokio::test]
     async fn a_run_stopped_before_it_listens_frees_its_slot() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("moonrise-stop-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         // An ffmpeg that never writes: only a stop ends its run.
         let ffmpeg = dir.join("ffmpeg");
-        std::fs::write(&ffmpeg, "#!/bin/sh\nexec sleep 30\n").unwrap();
-        std::fs::set_permissions(&ffmpeg, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::testutil::write_executable(&ffmpeg, "#!/bin/sh\nexec sleep 30\n");
         let cache = Arc::new(Cache::new(dir.join("cache"), 1 << 20));
         let t = Arc::new(Transcoder::new(ffmpeg.to_string_lossy().into(), cache, 1));
         let v = video("h264", 1920, 1080, 12_000_000, "SDR");
@@ -2086,12 +2084,10 @@ pub(crate) mod tests {
     /// started another, back and forth).
     #[tokio::test]
     async fn a_stopped_prefetch_leaves_the_request_its_run() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("moonrise-prefetch-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let ffmpeg = dir.join("ffmpeg");
-        std::fs::write(&ffmpeg, "#!/bin/sh\nexec sleep 30\n").unwrap();
-        std::fs::set_permissions(&ffmpeg, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::testutil::write_executable(&ffmpeg, "#!/bin/sh\nexec sleep 30\n");
         let cache = Arc::new(Cache::new(dir.join("cache"), 1 << 20));
         let t = Arc::new(Transcoder::new(ffmpeg.to_string_lossy().into(), cache, 1));
         let v = video("h264", 1920, 1080, 12_000_000, "SDR");

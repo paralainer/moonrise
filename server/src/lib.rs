@@ -32,6 +32,8 @@ mod migrate;
 mod offline;
 mod storage;
 mod subtitles;
+#[cfg(test)]
+mod testutil;
 mod userdata;
 
 pub use cli::run;

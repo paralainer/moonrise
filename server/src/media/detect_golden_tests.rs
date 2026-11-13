@@ -23,32 +23,18 @@ fn bare_host() -> bool {
 }
 
 /// A stand-in ffmpeg: `-encoders` and `-filters` list the given names; anything else succeeds.
-///
-/// Another process writes the executable (`install`). If this one did, a child started at that
-/// moment by a test on another thread would inherit the file open for writing, and until that
-/// child's own exec, running the file here fails with "Text file busy": `detect` then sees an
-/// ffmpeg with no encoders.
 fn fake_ffmpeg(dir: &Path, encoders: &[&str], filters: &[&str]) -> String {
     let list = |names: &[&str]| names.iter().map(|n| format!(" V....D {n}  An encoder\n")).collect::<String>();
     std::fs::write(dir.join("encoders.txt"), format!("Encoders:\n ------\n{}", list(encoders))).unwrap();
     std::fs::write(dir.join("filters.txt"), format!("Filters:\n{}", list(filters))).unwrap();
-    let script = dir.join("ffmpeg.sh");
-    std::fs::write(
-        &script,
-        format!(
+    let p = dir.join("ffmpeg");
+    crate::testutil::write_executable(
+        &p,
+        &format!(
             "#!/bin/sh\ncase \"$2\" in\n  -encoders) cat '{d}/encoders.txt' ;;\n  -filters) cat '{d}/filters.txt' ;;\nesac\nexit 0\n",
             d = dir.display()
         ),
-    )
-    .unwrap();
-    let p = dir.join("ffmpeg");
-    let status = std::process::Command::new("install")
-        .args(["-m", "755"])
-        .arg(&script)
-        .arg(&p)
-        .status()
-        .unwrap();
-    assert!(status.success(), "install: {status}");
+    );
     p.to_string_lossy().into_owned()
 }
 

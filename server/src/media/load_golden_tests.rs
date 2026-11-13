@@ -537,11 +537,9 @@ fn cases() -> Vec<Case> {
 
 /// A stand-in ffprobe: prints `probe.json` from its folder.
 fn fake_ffprobe(dir: &Path, probe: &Value) -> String {
-    use std::os::unix::fs::PermissionsExt;
     std::fs::write(dir.join("probe.json"), probe.to_string()).unwrap();
     let p = dir.join("ffprobe");
-    std::fs::write(&p, format!("#!/bin/sh\ncat '{}'\n", dir.join("probe.json").display())).unwrap();
-    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+    crate::testutil::write_executable(&p, &format!("#!/bin/sh\ncat '{}'\n", dir.join("probe.json").display()));
     p.to_string_lossy().into_owned()
 }
 

@@ -516,8 +516,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("moonrise-adts-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let ffmpeg = dir.join("ffmpeg");
-        std::fs::write(&ffmpeg, format!("#!/bin/sh\necho \"$*\" > {}/args\n", dir.display())).unwrap();
-        std::fs::set_permissions(&ffmpeg, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        crate::testutil::write_executable(&ffmpeg, &format!("#!/bin/sh\necho \"$*\" > {}/args\n", dir.display()));
         let cache = Arc::new(Cache::new(dir.join("cache"), 1 << 30));
         let seg = Segmenter::new(ffmpeg.display().to_string(), cache, 1);
         let args = async |container: &str, codec: &str| {
@@ -570,8 +569,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("moonrise-seek0-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let ffmpeg = dir.join("ffmpeg");
-        std::fs::write(&ffmpeg, format!("#!/bin/sh\necho \"$*\" > {}/args\n", dir.display())).unwrap();
-        std::fs::set_permissions(&ffmpeg, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        crate::testutil::write_executable(&ffmpeg, &format!("#!/bin/sh\necho \"$*\" > {}/args\n", dir.display()));
         let cache = Arc::new(Cache::new(dir.join("cache"), 1 << 30));
         let seg = Segmenter::new(ffmpeg.display().to_string(), cache, 1);
         let mut m = crate::media::transcode::tests::media(crate::media::transcode::tests::video("h264", 1920, 1080, 8_000_000, "SDR"));

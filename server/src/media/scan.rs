@@ -423,10 +423,8 @@ mod tests {
 
     /// A stand-in for ffprobe: two keyframes, half a second apart.
     fn fake_ffprobe(dir: &std::path::Path) -> String {
-        use std::os::unix::fs::PermissionsExt;
         let p = dir.join("ffprobe");
-        std::fs::write(&p, "#!/bin/sh\necho 'pts_time=0.000000|dts_time=0.000000|size=900|flags=K__'\nsleep 0.5\necho 'pts_time=2.000000|dts_time=2.000000|size=900|flags=K__'\n").unwrap();
-        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::testutil::write_executable(&p, "#!/bin/sh\necho 'pts_time=0.000000|dts_time=0.000000|size=900|flags=K__'\nsleep 0.5\necho 'pts_time=2.000000|dts_time=2.000000|size=900|flags=K__'\n");
         p.to_string_lossy().into_owned()
     }
 
