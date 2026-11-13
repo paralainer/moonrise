@@ -11,14 +11,19 @@
 #
 # The tree is copied to ~/$MAC_TEST_DIR on the Mac (default moonrise-tests), apart from the build
 # folder scripts/build.sh uses, so a test run and a build don't collide. Exits 0 when every test
-# passes, 1 when one fails or the build breaks, 3 when the Mac can't be reached (scripts/test-all.sh
-# reports that as skipped).
+# passes, 1 when one fails or the build breaks, 3 when the Mac can't be reached or is listed in
+# PERSONAL_MACS (someone's own Mac: tests never run there; scripts/test-all.sh reports that as
+# skipped).
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MAC_TEST_DIR=${MAC_TEST_DIR:-moonrise-tests}
 if [ -z "$MAC" ]; then
   echo "no build Mac (MAC= or scripts/mac.env): Apple tests not run" >&2
+  exit 3
+fi
+if ! test_mac_ok; then
+  echo "Apple tests not run" >&2
   exit 3
 fi
 if ! mac_reachable; then

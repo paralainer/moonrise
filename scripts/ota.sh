@@ -3,10 +3,16 @@
 # with an itms-services manifest into $OTA_DIR (default ~/moonrise-ota), which a Tailscale container
 # ($OTA_CONTAINER, default moonrise-ota) serves over HTTPS.
 # Open https://<that container>.<tailnet>.ts.net on the iPhone (Tailscale VPN on) and tap Install.
+#
+# It builds on the release Mac, RELEASE_MAC (the build Mac with the distribution certificates and
+# fastlane), in ~/$OTA_MAC_DIR there (default moonrise-ota-build), as scripts/release-apple.sh does:
+# never on MAC, which may name someone's own Mac; a host in PERSONAL_MACS is refused
+# (scripts/common.sh).
 set -euo pipefail
-# fastlane is only on the old Mac.
-ASKED=${MAC:-}; . "$(dirname "${BASH_SOURCE[0]}")/common.sh"; MAC=${ASKED:-${FASTLANE_MAC:-$MAC}}
+. "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 no_dev scripts/ota.sh
+use_release_mac "${OTA_MAC_DIR:-moonrise-ota-build}"
+release_mac_ok || exit 1
 need_mac
 need_signing scripts/ota.sh
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

@@ -15,8 +15,8 @@
 #            moonrise-server:check) and untagged again afterwards (KEEP_IMAGE=1 keeps it)
 #   apple    scripts/build.sh sim and tvos: the iPhone and Apple TV simulator builds, on the build
 #            Mac in ~/$MAC_TEST_DIR (default moonrise-tests, as scripts/test-apple.sh), so they don't
-#            touch a folder you build in. Skipped (with a note) when no build Mac is set or it can't
-#            be reached; on a Mac itself they run locally (MAC=local)
+#            touch a folder you build in. Skipped (with a note) when no build Mac is set, it can't
+#            be reached or it is listed in PERSONAL_MACS; on a Mac itself they run locally (MAC=local)
 #   export   scripts/export-public.sh into a scratch folder (removed afterwards): the committed
 #            tree (HEAD) has no secrets or private details
 #
@@ -89,6 +89,9 @@ else
   if [ -z "$mac" ]; then
     echo "    no build Mac (MAC= or scripts/mac.env): Apple builds not run"
     record "apple: simulator builds (no build Mac)" 3
+  elif ! bash -c '. "$1/scripts/common.sh" 2>/dev/null; test_mac_ok' _ "$ROOT"; then
+    echo "    $mac is a personal Mac (PERSONAL_MACS): Apple builds not run"
+    record "apple: simulator builds (personal Mac)" 3
   elif ! bash -c '. "$1/scripts/common.sh" 2>/dev/null; mac_reachable' _ "$ROOT"; then
     echo "    can't reach the build Mac $mac: Apple builds not run"
     record "apple: simulator builds (Mac not reachable)" 3
