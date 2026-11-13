@@ -56,3 +56,6 @@ App SDK (Microsoft, MIT and the Windows App SDK licence terms). Why and how libm
 
 The Moonrise name, icon and logo are covered by [TRADEMARKS.md](TRADEMARKS.md), not by the code
 licences. The artwork sources and how the icons are made: [assets/brand/README.md](assets/brand/README.md).
+The apps' two illustrations (the welcome screen's theatre, the empty Downloads screen) are
+Moonrise's own, generated from text prompts with the open MOSS-Image model (Apache-2.0); their
+origin is in the same README.

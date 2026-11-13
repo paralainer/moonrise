@@ -7,6 +7,21 @@ images in their own asset folders (below), and the scripts that make icons read 
 |---|---|
 | `icon-glass-moonrise-play.png` | The Moonrise icon artwork, 1024 x 1024: a glass film spool with a play symbol. The Unraid template (`server/packaging/unraid/moonrise-server.xml`) shows it as the server's icon, from this path on GitHub |
 
+## The apps' illustrations
+
+Two illustrations ship in the apps, besides the icons. Both are original to Moonrise: they were
+generated for it from text prompts alone (no source images) with the open image model
+[MOSS-Image](https://github.com/OpenMOSS/MOSS-Image) (Apache-2.0), then resized. They are covered
+by the apps' licence (MPL-2.0), like the rest of `clients/`.
+
+| Image | Where | What it shows |
+|---|---|---|
+| `WelcomeTheater` | Apple: `WelcomeTheater.imageset` in both asset catalogs; Android phone: `drawable-nodpi/welcome_theater.jpg` | An empty home theatre with a glowing blank screen, behind the welcome screen |
+| `EmptyDownloads` | Apple: `EmptyDownloads.imageset` in both asset catalogs; Android phone: `drawable-nodpi/empty_downloads.jpg` | An amber film strip curling into a download arrow over film canisters, on the empty Downloads screen |
+
+The demo's posters and backdrops (`clients/apple/Moonrise/Demo/Resources/`) are the Blender
+Foundation's, under Creative Commons licences: see [docs/demo.md](../../docs/demo.md).
+
 ## Where the apps' images are, and how icons are made
 
 - **Apple apps:** `clients/apple/Moonrise/Assets.xcassets` (iPhone, iPad, Mac: `AppIcon`,
