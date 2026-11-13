@@ -1,0 +1,21 @@
+Moonrise plays the films and shows on your own Moonrise server: a free, open-source server you run at home, on a NAS, a home server, a Mac or a Raspberry Pi. Your library, your devices, your network: no account with anyone and no cloud in between.
+
+PRESS RESUME, IT'S ALREADY PLAYING
+Home is on screen the moment the app opens, and the server sends each file as it is whenever the screen can play it, so films start at once and skipping ahead lands at once. MKV, HEVC, HDR, AV1 and every audio track, with no re-encoding of your library.
+
+DOWNLOADS YOU CAN WATCH WHILE THEY DOWNLOAD
+Pick a film and a quality and press Play whenever you like: the download plays from its first minutes and fetches from wherever you skip to. A dropped connection just pauses it; it carries on by itself, never a broken file. (iPhone, iPad and Mac.)
+
+YOUR LIBRARY ANYWHERE, NOTHING OPENED TO THE INTERNET
+Tailscale is built into the iPhone, iPad and Mac app: sign in to your tailnet and the app switches to it by itself when you leave home. No VPN app, no ports opened on your router.
+
+SET UP AND RUN FROM THE SOFA
+Start the server and open the app: it finds the server on your network, takes the six-digit setup code, and walks you through your account and your first folder, on the server or on a NAS share read directly over SMB. Libraries, family members and their devices, transcoding hardware and logs are managed from the app itself.
+
+ONE LIBRARY ON EVERY SCREEN
+Everyone signs in as themselves, with their own Continue Watching that follows them from the Apple TV to the phone. On Apple TV, the Top Shelf shows what to watch next.
+
+IT STAYS IN YOUR HOUSE
+No analytics, no account with us, nothing sent to the people who make Moonrise. The apps are free software under the MPL-2.0, the server under the AGPL-3.0.
+
+No server yet? Try the Demo on the welcome screen plays four open films by the Blender Foundation.

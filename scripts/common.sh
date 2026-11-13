@@ -127,7 +127,7 @@ APP_TEAM=$(signing_value MOONRISE_DEVELOPMENT_TEAM)
 # separate app with its own sign-in, keychain, data, widgets and Top Shelf, for trying out changes and for tests, so the
 # real app (and its sign-in) stays as it is. Its builds go to build-<platform>-dev on the Mac, and
 # build, sim, tvsim and deploy-* act on it. On Mac it is "Moonrise Dev.app". ota.sh and
-# testflight.sh ship the app itself only, and refuse DEV=1 (no_dev).
+# release-apple.sh ship the app itself only, and refuse DEV=1 (no_dev).
 if [ "${DEV:-}" = 1 ]; then
   APP_ID="$APP_ID.dev"
   APP_NAME="Moonrise Dev"
@@ -176,7 +176,7 @@ start() { launch
 EOF
 }
 
-# no_dev <script>: for the scripts that ship the app itself (OTA, TestFlight), which have no Dev
+# no_dev <script>: for the scripts that ship the app itself (OTA, the App Store), which have no Dev
 # variant: stop (exit 2) when DEV=1 is set, rather than build one app and publish under another's id.
 no_dev() {
   [ "${DEV:-}" = 1 ] || return 0

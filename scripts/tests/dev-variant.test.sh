@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The scripts' DEV=1 (the Dev app, "Moonrise Dev"):
-# - scripts/ota.sh and scripts/testflight.sh ship the app itself only: with DEV=1 they stop at once
+# - scripts/ota.sh and scripts/release-apple.sh ship the app itself only: with DEV=1 they stop at once
 #   (exit 2, saying so), before anything reaches the build Mac; without it they go on as before.
 # - scripts/sim.sh and scripts/tvsim.sh (sim_launch in common.sh) wait for the launch until
 #   simctl says the app is up, launch once more when it fails or doesn't come up, and then fail
@@ -44,15 +44,15 @@ chmod +x "$SCRATCH/bin/"*
 unset DEV MAC FASTLANE_MAC
 run() { rm -f "$LOG" "$SCRATCH/app-up"; touch "$LOG"; PATH="$SCRATCH/bin:$PATH" bash "$@" 2>&1; }
 
-for s in ota.sh testflight.sh; do
-  out=$(DEV=1 MAC=nobody@example.invalid run "$C/scripts/$s"); rc=$?
+for s in ota.sh "release-apple.sh ios"; do
+  out=$(DEV=1 MAC=nobody@example.invalid run "$C/scripts/"$s); rc=$?
   expect_status 2 $rc "DEV=1 scripts/$s" "$out"
-  expect_in "scripts/$s ships Moonrise itself, not the Dev app" "$out" "DEV=1 $s says why"
+  expect_in "scripts/${s%% *} ships Moonrise itself, not the Dev app" "$out" "DEV=1 $s says why"
   [ -s "$LOG" ] && fail "DEV=1 $s reached the build Mac" "$(cat "$LOG")" || ok
-  out=$(DEV=1 run "$C/scripts/$s"); rc=$?
+  out=$(DEV=1 run "$C/scripts/"$s); rc=$?
   expect_status 2 $rc "DEV=1 scripts/$s with no build Mac set" "$out"
   # Without DEV=1, the same fresh clone goes on to the usual checks (here: no signing set up).
-  out=$(MAC=nobody@example.invalid run "$C/scripts/$s"); rc=$?
+  out=$(MAC=nobody@example.invalid run "$C/scripts/"$s); rc=$?
   expect_status 1 $rc "scripts/$s without DEV=1, in a fresh clone" "$out"
   expect_not_in "not the Dev app" "$out" "$s without DEV=1 isn't refused"
   expect_in "signs the app" "$out" "$s without DEV=1 reaches the signing check"
