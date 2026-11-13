@@ -272,11 +272,12 @@ struct ItemDetailView: View {
         .padding(.top, showHeader ? -TitleHeader.overlap(metrics, hasImage: headerImage != nil) : 0)
     }
 
-    /// iPad: the title block; playing it, with Download at its end.
+    /// iPad and Mac: the title block; playing it, with Download right after the title's text
+    /// (`TitleAccessoryRow`), not at the column's far end.
     @ViewBuilder private func padTitleRow(showHeader: Bool) -> some View {
         if !showHeader, let target = focus, target.isPlayable, DownloadManager.isSupported, playing(target) != nil {
-            HStack(alignment: .center, spacing: Self.rowGap) {
-                titleBlock(named: true)
+            TitleAccessoryRow(spacing: Self.titleAccessoryGap) {
+                titleBlock(named: true, fill: false)
                 LaunchReveal(drag: drag, grows: false) { downloadButton(target, size: Self.statusButton) }
             }
         } else {
@@ -504,7 +505,8 @@ struct ItemDetailView: View {
     // MARK: Title + meta
 
     /// `named`: the header (with the logo) is the video now, so the title is written out.
-    private func titleBlock(named: Bool) -> some View {
+    /// `fill`: as wide as the column (else as wide as its text, with something after it).
+    private func titleBlock(named: Bool, fill: Bool = true) -> some View {
         let lead = metrics.regular
         return VStack(alignment: lead ? .leading : .center, spacing: 0) {
             if named {
@@ -529,7 +531,7 @@ struct ItemDetailView: View {
             }
         }
         .foregroundStyle(.white)
-        .frame(maxWidth: .infinity, alignment: lead ? .leading : .center)
+        .frame(maxWidth: fill ? .infinity : nil, alignment: lead ? .leading : .center)
         // Admins: long-press (Mac: right-click) the title for Fix Match.
         .modifier(FixMatchTitleMenu(item: item))
     }
@@ -618,6 +620,8 @@ struct ItemDetailView: View {
     }
 
     private static let rowGap: CGFloat = 12
+    /// Between the title's text and Download after it (the meta line's badges' gap, doubled).
+    private static let titleAccessoryGap: CGFloat = 16
     /// iPad: the damaged note's width (Play's and Download's, with the gap between).
     private static let notePadWidth: CGFloat = PlayCapsule.padWidth + rowGap + PlayCapsule.height
     private static let statusGap: CGFloat = 12
@@ -1360,5 +1364,43 @@ struct TitleDetails: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+}
+
+/// A title block and a button just after its text (its widest line), centred on the block;
+/// the title wraps before it pushes the button out of the row.
+struct TitleAccessoryRow: Layout {
+    var spacing: CGFloat
+
+    /// Where the title (`title`: its size in the room the button leaves) and the button go:
+    /// the button `spacing` after the title's text, both centred on the taller.
+    static func frames(title: CGSize, accessory: CGSize, spacing: CGFloat) -> (title: CGRect, accessory: CGRect) {
+        let h = max(title.height, accessory.height)
+        return (CGRect(x: 0, y: (h - title.height) / 2, width: title.width, height: title.height),
+                CGRect(x: title.width + spacing, y: (h - accessory.height) / 2, width: accessory.width, height: accessory.height))
+    }
+
+    private func sizes(_ proposal: ProposedViewSize, _ subviews: Subviews) -> (CGSize, CGSize) {
+        guard subviews.count == 2 else { return (.zero, .zero) }
+        let accessory = subviews[1].sizeThatFits(.unspecified)
+        let room = proposal.width.map { max(0, $0 - accessory.width - spacing) }
+        let title = subviews[0].sizeThatFits(ProposedViewSize(width: room, height: nil))
+        return (title, accessory)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let (title, accessory) = sizes(proposal, subviews)
+        let f = Self.frames(title: title, accessory: accessory, spacing: spacing)
+        return CGSize(width: proposal.width ?? f.accessory.maxX, height: max(f.title.maxY, f.accessory.maxY))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 2 else { return }
+        let (title, accessory) = sizes(ProposedViewSize(width: bounds.width, height: bounds.height), subviews)
+        let f = Self.frames(title: title, accessory: accessory, spacing: spacing)
+        subviews[0].place(at: CGPoint(x: bounds.minX + f.title.minX, y: bounds.minY + f.title.minY),
+                          proposal: ProposedViewSize(f.title.size))
+        subviews[1].place(at: CGPoint(x: bounds.minX + f.accessory.minX, y: bounds.minY + f.accessory.minY),
+                          proposal: ProposedViewSize(f.accessory.size))
     }
 }

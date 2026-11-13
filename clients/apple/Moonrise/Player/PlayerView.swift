@@ -293,12 +293,14 @@ struct PlayerScreen: View {
             Color.black
             VideoSurface(model: model, fullBleed: !compact)
 
+            // Mac: the controls sit on the picture (`PictureFrame`), not on the bars beside it.
+            let picture = controlsFrame(size)
             PictureSubtitleOverlay(cues: model.overlayPictures, canvas: model.pictureCanvas, videoSize: model.videoSize,
-                                   fill: model.fill, controls: controlsShown ? controlsLayout : nil)
+                                   fill: model.fill, controls: controlsShown ? subtitleControls(picture, compact: compact) : nil)
                 // Over the whole video, as VideoSurface lays it out (past the safe area).
                 .ignoresSafeArea(edges: compact ? [] : .all)
             SubtitleOverlay(text: model.overlayText, height: size.height,
-                            controls: controlsShown ? controlsLayout : nil,
+                            controls: controlsShown ? subtitleControls(picture, compact: compact) : nil,
                             liftedBottom: fullScreenControls && !compact ? max(size.height * 0.2, 175) : size.height * 0.2)
 
             #if os(macOS)
@@ -341,6 +343,7 @@ struct PlayerScreen: View {
                                fullScreenActive: macFullScreen,
                                closeIcon: inline.map { $0.fullScreen ? "chevron.down" : "chevron.left" },
                                download: inline?.download)
+                    .onPicture(picture)
                     .transition(.opacity)
             }
 
@@ -352,6 +355,7 @@ struct PlayerScreen: View {
                 GestureHUDView(hud: hud)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: place.alignment)
                     .padding(place.insets)
+                    .onPicture(picture)
                     .transition(.opacity)
             }
 
@@ -366,6 +370,7 @@ struct PlayerScreen: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                     .padding(.horizontal, inset.width)
                     .padding(.vertical, inset.height)
+                    .onPicture(picture)
                     .transition(.opacity)
             }
             #endif
@@ -455,6 +460,28 @@ struct PlayerScreen: View {
         return true
         #else
         return false
+        #endif
+    }
+
+    /// Where the controls are drawn on a stage of `size`: on the Mac, the picture (a 4:3 episode
+    /// in a wide window keeps its scrubber and buttons on the video, not over the black bars);
+    /// elsewhere the whole stage.
+    private func controlsFrame(_ size: CGSize) -> CGRect {
+        #if os(macOS)
+        return PictureFrame.controls(video: model.videoSize, in: size, fill: model.fill)
+        #else
+        return CGRect(origin: .zero, size: size)
+        #endif
+    }
+
+    /// The controls' parts for the subtitles. On the Mac the bottom row's band is known from
+    /// where the controls are drawn, so the text lifts above the scrubber even before (or
+    /// without) the parts' own report.
+    private func subtitleControls(_ picture: CGRect, compact: Bool) -> ControlsLayout {
+        #if os(macOS)
+        return controlsLayout.withBottomBand(of: picture, insets: PlayerControls.rowInsets(compact: compact))
+        #else
+        return controlsLayout
         #endif
     }
 
@@ -621,6 +648,39 @@ struct ControlsLayout: Equatable {
         }
     }
     var parts: [Part] = []
+}
+
+extension ControlsLayout {
+    /// Height of the controls' bottom row: the scrubber capsule, Skip Intro and Episodes.
+    static let bottomRowHeight: CGFloat = SkipSegmentButton.height
+
+    /// This layout, plus the bottom row's band when no bottom part was reported: the row of
+    /// controls drawn in `frame` (stage coordinates), `insets` from its sides and bottom.
+    func withBottomBand(of frame: CGRect, insets: CGSize) -> ControlsLayout {
+        guard !parts.contains(where: { $0.kind == .bottom }), frame.width > 0, frame.height > 0 else { return self }
+        let band = CGRect(x: frame.minX + insets.width, y: frame.maxY - insets.height - Self.bottomRowHeight,
+                          width: max(0, frame.width - 2 * insets.width), height: Self.bottomRowHeight)
+        return ControlsLayout(parts: parts + [Part(kind: .bottom, frame: band)])
+    }
+}
+
+/// Where the controls go on the stage: on the video's picture, so a 4:3 episode in a wide
+/// window keeps its scrubber and buttons on the video rather than over the black bars beside it;
+/// never smaller than the controls fit in.
+enum PictureFrame {
+    /// The least room the controls take (the page's small player's top and bottom rows).
+    static let minControls = CGSize(width: 360, height: 200)
+
+    /// The picture as it is drawn (`PictureLayout.videoRect`), widened or heightened about its
+    /// centre to `minControls` (as far as the stage goes) when it is smaller. Filling the stage,
+    /// or with the size not known yet (before the first frame): the whole stage.
+    static func controls(video: CGSize, in bounds: CGSize, fill: Bool) -> CGRect {
+        guard !fill, video.width > 0, video.height > 0 else { return CGRect(origin: .zero, size: bounds) }
+        let r = PictureLayout.videoRect(video: video, canvas: .zero, in: bounds, fill: false)
+        let w = min(bounds.width, max(r.width, minControls.width))
+        let h = min(bounds.height, max(r.height, minControls.height))
+        return CGRect(x: (bounds.width - w) / 2, y: (bounds.height - h) / 2, width: w, height: h)
+    }
 }
 
 /// The subtitle box's sides and height on the stage.
@@ -919,6 +979,16 @@ struct GestureHUDView: View {
 }
 
 private extension View {
+    /// Mac: laid out in `rect` of the stage (the controls on the picture, `PictureFrame`).
+    /// Elsewhere the controls take the whole stage, as laid out already.
+    @ViewBuilder func onPicture(_ rect: CGRect) -> some View {
+        #if os(macOS)
+        frame(width: rect.width, height: rect.height).position(x: rect.midX, y: rect.midY)
+        #else
+        self
+        #endif
+    }
+
     @ViewBuilder func clipped(antialiased: Bool, if condition: Bool) -> some View {
         if condition { clipped(antialiased: antialiased) } else { self }
     }

@@ -93,7 +93,8 @@ final class PlayerModel {
     /// The selected picture track's cues known so far (`PictureCue`), and those showing now.
     var pictureDoc: PictureDocument?
     var pictureCues: [PictureCue] = []
-    /// The video's picture size as it shows (for placing picture cues).
+    /// The video's picture size as it shows (for placing picture cues; the Mac's controls sit on
+    /// the picture).
     var videoSize: CGSize = .zero
     /// The selected server track fetched in windows around the playhead (it isn't extracted yet).
     @ObservationIgnored var windowLoader: SubtitleWindowLoader?
