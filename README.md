@@ -140,6 +140,11 @@ and runs the server from source and prints its address and setup code, `make che
 test and build a pull request must pass, and `make` lists the rest. Security problems:
 [SECURITY.md](SECURITY.md).
 
+## Support
+
+Moonrise is free to use. If you want to support its development, it has a
+[Buy Me a Coffee page](https://buymeacoffee.com/getmoonrise).
+
 ## License
 
 Moonrise is free software, under two licences by directory:

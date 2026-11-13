@@ -129,6 +129,7 @@ h1 span { display: block; }
 /* Tonight: the commands */
 .tonight .copy { max-width: 40rem; }
 .tonight pre { margin: 1.6rem 0 2rem; padding: 1.2rem 1.4rem; background: #121212; color: var(--white); border-radius: 6px; overflow-x: auto; line-height: 1.65; max-width: 40rem; }
+.tonight .support { margin-top: 2.2rem; }
 
 footer { padding: 0 var(--gutter) 2.5rem; font-size: .875rem; color: var(--dim); max-width: 1400px; margin: 0 auto; }
 footer p { max-width: 62em; margin: 0 0 .6em; }

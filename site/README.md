@@ -37,6 +37,8 @@ under 10 MB.
 
 - The links in `index.html` and `credits.html` point to `github.com/paralainer/moonrise`; a fork changes them to
   its own repository.
+- The support link in `index.html` is the project's Buy Me a Coffee page, the same one as `.github/FUNDING.yml` and
+  the README; a fork changes or removes all three.
 - The sample films, their art and the typeface are credited in the footer, `credits.html` and `CREDITS.md`; keep
   all three if they are replaced or moved.
 - The icon is the Moonrise trademark ([TRADEMARKS.md](../TRADEMARKS.md)): a fork's site uses its

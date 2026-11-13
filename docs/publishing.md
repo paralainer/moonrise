@@ -16,8 +16,7 @@ changes them to its own account.
    the patterns over every commit), or publish the one-commit copy instead.
 2. Make the GitHub repository public (or create it and push the copy), set the description and
    topics, and enable Issues and private vulnerability reporting (SECURITY.md points to it).
-3. `.github/FUNDING.yml`: fill in a support link, or leave it commented out.
-4. The Windows build gets libmpv from the project's `deps-libmpv-*` release (`$ProjectRepo` in
+3. The Windows build gets libmpv from the project's `deps-libmpv-*` release (`$ProjectRepo` in
    `clients/windows/build.ps1`). If the public repository is a different one, upload the same
    archives to it as releases with the same tags and change `$ProjectRepo`.
 
