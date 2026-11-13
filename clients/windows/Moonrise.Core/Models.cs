@@ -329,7 +329,7 @@ public sealed record PlaybackTrack
     public string? Language { get; init; }
     public bool? Default { get; init; }
     public bool? Converted { get; init; }
-    /// <summary>Subtitles: a text track (else bitmap, burned in by the server).</summary>
+    /// <summary>Subtitles: a text track (else pictures: PGS, DVD or DVB, served as images in windows).</summary>
     public bool? Text { get; init; }
     public bool? Forced { get; init; }
     public bool? External { get; init; }
@@ -339,6 +339,9 @@ public sealed record PlaybackTrack
 
     /// <summary>A text track the server takes out of the video (served in windows until it's all out).</summary>
     [JsonIgnore] public bool Embedded => Text != false && (Source == "embedded" || (Source == null && External != true));
+
+    /// <summary>A picture track: only ever served in windows of images (<c>/subtitles/{index}/cues</c>).</summary>
+    [JsonIgnore] public bool Picture => Text == false;
 }
 
 /// <summary>GET /v1/items/{id}/playback: how the server serves a title, and its HLS session.</summary>

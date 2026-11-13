@@ -67,6 +67,9 @@ public sealed class PlayerPage : Grid
     private readonly TextBlock _errorDetail = F.Text("", Theme.FontCaption, fg: Theme.Secondary);
     private Button _detailsButton = null!;
     // Subtitles drawn here: the text in white over four black copies a pixel off (its outline), in a box when Background is on.
+    /// <summary>Picture subtitles (PGS, DVD, DVB), each placed on the video as its track says.</summary>
+    private readonly Canvas _pictureLayer = new() { IsHitTestVisible = false };
+    private readonly Dictionary<SubtitleCue, Image> _picturesShown = [];
     private readonly Grid _subtitleLayer = new() { VerticalAlignment = VerticalAlignment.Bottom, IsHitTestVisible = false, Margin = new Thickness(40, 0, 40, 0) };
     private readonly Border _subtitleBox = new() { HorizontalAlignment = HorizontalAlignment.Center, CornerRadius = new CornerRadius(6), Visibility = Visibility.Collapsed };
     private readonly TextBlock[] _subtitleLines = Enumerable.Range(0, 5).Select(_ => new TextBlock
@@ -105,7 +108,7 @@ public sealed class PlayerPage : Grid
     private int? _selectedAudio;
     private SubOption? _selectedSub;
     private bool _tracksApplied;
-    /// <summary>The stream restarts where it is (quality, version, burned-in subtitles): the tracks picked stay.</summary>
+    /// <summary>The stream restarts where it is (quality, version): the tracks picked stay.</summary>
     private bool _restartInPlace;
     private QualityOption? _quality;
 
@@ -166,7 +169,7 @@ public sealed class PlayerPage : Grid
     private readonly DisplayRequest _awake = new("Moonrise playing video");
 
     private sealed record AudioOption(int Index, string Title, string? Detail, string? Language, string Name, bool IsDefault);
-    private sealed record SubOption(string Id, int Index, string Title, string? Language, bool BurnIn);
+    private sealed record SubOption(string Id, int Index, string Title, string? Language);
 
     public PlayerPage(Shell shell, Item item, double? start, string? version, IReadOnlyList<Item>? episodes, bool startFromBeginning)
     {
@@ -184,6 +187,7 @@ public sealed class PlayerPage : Grid
         BuildChrome();
         Children.Add(_chrome);
         // Over the controls' shading (it would dim them), and kept clear of the controls themselves.
+        Children.Add(_pictureLayer);
         Children.Add(_subtitleLayer);
         Children.Add(_corner);
         Children.Add(_buffering);
@@ -537,7 +541,7 @@ public sealed class PlayerPage : Grid
         {
             try
             {
-                p = await _api.PlaybackInfo(_item.Id, at, hdr, _versionId, burn: _burn, quality: QualityChoice.Request(_quality));
+                p = await _api.PlaybackInfo(_item.Id, at, hdr, _versionId, quality: QualityChoice.Request(_quality));
             }
             catch (Exception ex)
             {
@@ -569,15 +573,13 @@ public sealed class PlayerPage : Grid
     /// <summary>The file playing: the title's id, with the version when one was picked (the subtitle and thumbnail routes take it).</summary>
     private string MediaId => _api.MediaId(_item.Id, _versionId);
 
-    /// <summary>The stream again from where it is, with what changed (quality, version, burned-in subtitles); the tracks picked stay.</summary>
+    /// <summary>The stream again from where it is, with what changed (quality, version); the tracks picked stay.</summary>
     private void RestartInPlace()
     {
         _restartInPlace = true;
         _ = CloseCurrent(false);
         Start(_position > 1 ? _position : _startAt);
     }
-
-    private int? _burn;
 
     private void OnTime(double t)
     {
@@ -750,7 +752,7 @@ public sealed class PlayerPage : Grid
             var parts = new List<string> { lang };
             if (s.Forced == true) parts.Add("Forced");
             if (TrackRules.IsSDH(s.Name)) parts.Add("SDH");
-            options.Add(new SubOption($"s{s.Index}", s.Index, string.Join(" · ", parts), s.Language, s.Text == false));
+            options.Add(new SubOption($"s{s.Index}", s.Index, string.Join(" · ", parts), s.Language));
         }
         _subOptions = options;
     }
@@ -764,7 +766,7 @@ public sealed class PlayerPage : Grid
             ?? _audioOptions.FirstOrDefault(o => o.IsDefault)?.Index ?? _audioOptions.FirstOrDefault()?.Index;
         ApplyAudio();
 
-        var candidates = _subOptions.Select(s => new SubtitleCandidate(s.Id, s.Title, s.Language, s.Index, s.BurnIn)).ToList();
+        var candidates = _subOptions.Select(s => new SubtitleCandidate(s.Id, s.Title, s.Language, s.Index)).ToList();
         var mem = TrackRules.RememberedSubtitle(candidates, memory);
         SubOption? choice = null;
         // Settings' subtitles: on in the preferred language, else forced ones only; the title's own pick first.
@@ -804,9 +806,9 @@ public sealed class PlayerPage : Grid
     }
 
     /// <summary>
-    /// A subtitle to show (null: Off). A text track is drawn here; a bitmap track is burned in by the
-    /// server, so the stream restarts where it is. <paramref name="persist"/>: the viewer picked it,
-    /// so its language (or Off) is the preference from now on.
+    /// A subtitle to show (null: Off), text or pictures, drawn here over the video (the stream goes on as
+    /// it is). <paramref name="persist"/>: the viewer picked it, so its language (or Off) is the
+    /// preference from now on.
     /// </summary>
     private void SelectSubtitle(SubOption? o, bool persist)
     {
@@ -815,14 +817,9 @@ public sealed class PlayerPage : Grid
             _prefs.SubtitlePicked(o?.Language, o?.Title);
             Prefs.Save();
         }
-        // The same bitmap track again: it's already burned into this stream.
-        if (o is { BurnIn: true } && o.Id == _selectedSub?.Id && _burn == o.Index) return;
-        var wasBurned = _burn != null;
         _selectedSub = o;
-        _burn = o is { BurnIn: true } ? o.Index : null;
-        AppLog.Write($"subtitles: {(o == null ? "off" : $"track {o.Index} ({o.Language ?? "?"}){(o.BurnIn ? ", burned in" : "")}")}");
+        AppLog.Write($"subtitles: {(o == null ? "off" : $"track {o.Index} ({o.Language ?? "?"})")}");
         LoadSubtitle(o);
-        if (_burn != null || wasBurned) RestartInPlace();
     }
 
     private TrackChoice? TracksPlaying()
@@ -883,7 +880,7 @@ public sealed class PlayerPage : Grid
         menu.Items.Add(style);
 
         // Delay: moves the text against the picture (Mac: TrackMenus.delay).
-        var delay = new MenuFlyoutSubItem { Text = "Delay  " + SubtitleDelay.Label(_subtitleDelay), Icon = new FontIcon { Glyph = "\uE916" }, IsEnabled = _selectedSub is { BurnIn: false } };
+        var delay = new MenuFlyoutSubItem { Text = "Delay  " + SubtitleDelay.Label(_subtitleDelay), Icon = new FontIcon { Glyph = "\uE916" }, IsEnabled = _selectedSub != null };
         foreach (var step in SubtitleDelay.Steps)
         {
             var it = new MenuFlyoutItem { Text = SubtitleDelay.Label(step) };
@@ -901,8 +898,9 @@ public sealed class PlayerPage : Grid
     // ---------------------------------------------------------------- subtitles drawn by the app
 
     /// <summary>
-    /// The text track to show: an embedded one window by window around the playhead when the server
-    /// serves windows (then whole, once the server has it all), any other whole.
+    /// The track to show: an embedded text one window by window around the playhead when the server
+    /// serves windows (then whole, once the server has it all), any other whole; a picture track
+    /// always in windows (the server never has it whole).
     /// </summary>
     private void LoadSubtitle(SubOption? o)
     {
@@ -913,19 +911,33 @@ public sealed class PlayerPage : Grid
         _nudgeTimer.Stop();
         if (_pendingNudge != null) _ = SendNudge();
         ShowSubtitle(null);
-        if (o == null || o.BurnIn) return;
+        ShowPictures(null);
+        if (o == null) return;
         var track = _playback?.Subtitles.FirstOrDefault(s => s.Index == o.Index);
-        if (track?.Url == null) return;
+        if (track == null || (track.Url == null && !track.Picture)) return;
         _ = LoadSubtitleAsync(o, track, _subtitleGeneration);
     }
 
     private async Task LoadSubtitleAsync(SubOption o, PlaybackTrack track, int generation)
     {
         var media = MediaId;
-        var url = _api.Resolve(track.Url!);
         await LoadServerSubtitles(media);
         if (generation != _subtitleGeneration) return;
         _subtitleDelay = RestoredDelay(o);
+        if (track.Picture)
+        {
+            // Pictures: windows only (never complete, and nothing else to fall back to).
+            var index = track.Index;
+            _windowLoader = new SubtitleWindowLoader(
+                (k, ct) => _api.SubtitleWindow(media, index, k, _session, ct),
+                _ => Task.FromResult(""),
+                cues => { if (generation == _subtitleGeneration) { _subtitleDoc = new SubtitleDocument(cues); UpdateSubtitle(_position); } },
+                () => AppLog.Write("subtitles: this server doesn't serve picture subtitles"),
+                log: AppLog.Write);
+            _windowLoader.Advance(_position - _subtitleDelay);
+            return;
+        }
+        var url = _api.Resolve(track.Url!);
         try
         {
             var info = await _api.Capabilities();
@@ -979,7 +991,7 @@ public sealed class PlayerPage : Grid
         _subtitleDelay = value;
         UpdateSubtitle(_position);
         _windowLoader?.Advance(_position - _subtitleDelay);
-        if (_selectedSub is not { BurnIn: false } o) return;
+        if (_selectedSub is not { } o) return;
         AppLog.Write($"subtitle delay {SubtitleDelay.Label(value)} for {o.Title}");
         if (TimedTrack(o) is { } track)
         {
@@ -1006,8 +1018,76 @@ public sealed class PlayerPage : Grid
         catch (Exception e) { AppLog.Write("subtitle delay: " + e.Message); }
     }
 
-    /// <summary>The cue showing at <paramref name="t"/>, moved by the delay.</summary>
-    private void UpdateSubtitle(double t) => ShowSubtitle(_subtitleDoc?.TextAt(t - _subtitleDelay));
+    /// <summary>The cue showing at <paramref name="t"/>, moved by the delay: text, or pictures.</summary>
+    private void UpdateSubtitle(double t)
+    {
+        ShowSubtitle(_subtitleDoc?.TextAt(t - _subtitleDelay));
+        ShowPictures(_subtitleDoc == null ? null : SubtitlePictures.At(_subtitleDoc.Cues, t - _subtitleDelay));
+    }
+
+    /// <summary>
+    /// The picture cues to show, each an image over the video where the track places it: decoded
+    /// once per cue, kept while it shows, laid out again when the page, the video or the controls move.
+    /// </summary>
+    private void ShowPictures(IReadOnlyList<SubtitleCue>? cues)
+    {
+        cues ??= [];
+        if (cues.Count == _picturesShown.Count && cues.All(c => _picturesShown.ContainsKey(c))) return;
+        foreach (var gone in _picturesShown.Keys.Where(c => !cues.Contains(c)).ToList())
+        {
+            _pictureLayer.Children.Remove(_picturesShown[gone]);
+            _picturesShown.Remove(gone);
+        }
+        foreach (var c in cues.Where(c => !_picturesShown.ContainsKey(c)))
+        {
+            var image = new Image { Stretch = Stretch.Fill, Source = PictureBitmap(c.Image!) };
+            _picturesShown[c] = image;
+            _pictureLayer.Children.Add(image);
+        }
+        PlacePictures();
+    }
+
+    /// <summary>A picture cue's PNG as a bitmap: decoded once, while the cue shows (the image fills in when it's ready).</summary>
+    private static BitmapImage PictureBitmap(CueImage cue)
+    {
+        var bitmap = new BitmapImage();
+        _ = Decode();
+        return bitmap;
+
+        async Task Decode()
+        {
+            try
+            {
+                using var stream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
+                await stream.WriteAsync(Convert.FromBase64String(cue.Png).AsBuffer());
+                stream.Seek(0);
+                await bitmap.SetSourceAsync(stream);
+            }
+            catch (Exception e) { AppLog.Write("subtitle picture: " + e.Message); }
+        }
+    }
+
+    /// <summary>The pictures on the video's rectangle (Mac: SubtitleOverlay), clear of the scrubber while the controls show.</summary>
+    private void PlacePictures()
+    {
+        if (_picturesShown.Count == 0) return;
+        var size = _mpv?.DisplaySize;
+        var vw = size?.Width ?? _playback?.Video?.Width ?? 0;
+        var vh = size?.Height ?? _playback?.Video?.Height ?? 0;
+        if (SubtitlePictures.VideoRect(ActualWidth, ActualHeight, vw, vh, _fill) is not { } video) return;
+        double bandTop = 0;
+        if (_scrubCapsule.ActualHeight > 0)
+            bandTop = _scrubCapsule.TransformToVisual(this).TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
+        foreach (var (cue, image) in _picturesShown)
+        {
+            if (SubtitlePictures.Place(cue.Image!, video) is not { } r) continue;
+            var lift = SubtitlePictures.Lift(r.Y, r.Height, ActualHeight, _controlsShown, bandTop);
+            image.Width = r.Width;
+            image.Height = r.Height;
+            Canvas.SetLeft(image, r.X);
+            Canvas.SetTop(image, r.Y - lift);
+        }
+    }
 
     private void ShowSubtitle(string? text)
     {
@@ -1038,6 +1118,7 @@ public sealed class PlayerPage : Grid
             bandTop = _scrubCapsule.TransformToVisual(this).TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
         var pad = SubtitleLayout.BottomPadding(ActualHeight, _controlsShown, bandTop);
         _subtitleLayer.Margin = new Thickness(40, 0, 40, pad);
+        PlacePictures();
     }
 
     // ---------------------------------------------------------------- episodes
@@ -1274,7 +1355,6 @@ public sealed class PlayerPage : Grid
         // Its own tracks, as a title starting.
         _selectedAudio = null;
         _selectedSub = null;
-        _burn = null;
         LoadSubtitle(null);
         _restartInPlace = false;
         _ = CloseCurrent(false);
@@ -1479,7 +1559,7 @@ public sealed class PlayerPage : Grid
         _refocusTimer.Stop();
         _refocusTimer.Start();
     }
-    private void ToggleFill() { _fill = !_fill; _mpv?.SetFill(_fill); _fillGlyph.Text = _fill ? "\uE9A5" : "\uE9A6"; }
+    private void ToggleFill() { _fill = !_fill; _mpv?.SetFill(_fill); _fillGlyph.Text = _fill ? "\uE9A5" : "\uE9A6"; PlacePictures(); }
 
     /// <summary>
     /// The title shows in full screen only (on its page the page shows it), and the button says

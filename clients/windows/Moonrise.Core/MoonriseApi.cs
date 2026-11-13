@@ -277,9 +277,9 @@ public sealed class MoonriseApi
     // ---------------------------------------------------------------- playback
 
     /// <summary><paramref name="quality"/>: a preset's bits per second, transcoded to; null for the original.</summary>
-    public Task<Playback> PlaybackInfo(string itemId, double? start = null, bool hdr = false, string? version = null, int? burn = null, bool lossless = false, long? quality = null)
+    public Task<Playback> PlaybackInfo(string itemId, double? start = null, bool hdr = false, string? version = null, bool lossless = false, long? quality = null)
     {
-        var q = Q(("hdr", hdr ? "1" : "0"), ("version", version), ("burn", burn?.ToString()), ("quality", quality?.ToString(CultureInfo.InvariantCulture)));
+        var q = Q(("hdr", hdr ? "1" : "0"), ("version", version), ("quality", quality?.ToString(CultureInfo.InvariantCulture)));
         if (lossless) q["lossless"] = "1";
         if (start is > 1) q["start"] = start.Value.ToString("F3", CultureInfo.InvariantCulture);
         return Get<Playback>($"v1/items/{Enc(itemId)}/playback", q);

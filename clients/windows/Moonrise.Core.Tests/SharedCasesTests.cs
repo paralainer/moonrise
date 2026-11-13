@@ -135,6 +135,15 @@ public class ApiExamplesTests
             Assert.True(w.Complete);
             Assert.Equal(new SubtitleCue(1.0, 4.0, "Hello, world."), Assert.Single(w.Cues));
         },
+        ["subtitle-picture-cues.json"] = v =>
+        {
+            var w = D<SubtitleWindow>(v);
+            Assert.False(w.Complete);
+            Assert.Equal(new PictureCanvas { Width = 1920, Height = 1080 }, w.Canvas);
+            var c = Assert.Single(w.Cues);
+            Assert.Equal((777, 949, 2, 1), (c.Image!.X, c.Image.Y, c.Image.Width, c.Image.Height));
+            Assert.StartsWith("iVBOR", c.Image.Png);
+        },
         ["subtitle-timing.json"] = v => D<SubtitleTiming>(v),
     };
 
