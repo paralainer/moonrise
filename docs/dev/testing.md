@@ -34,6 +34,7 @@
 | No private ticket numbers | `scripts/tests/no-ticket-refs.test.sh`: no tracked file names an issue of the project's private tracker | `scripts/tests/run.sh` |
 | README | `scripts/tests/readme.test.sh`: the server version it states is the one in `server/Cargo.toml`, no placeholders are left, its screenshots exist | `scripts/tests/run.sh` |
 | App illustrations | `scripts/tests/art-credits.test.sh`: every JPEG in the apps' asset folders has its origin in `assets/brand/README.md` | `scripts/tests/run.sh` |
+| Landing page publishing | `scripts/tests/pages-workflow.test.sh`: `pages.yml` starts only on a push to `main` touching `site/**` or by hand, uploads `site` and runs no commands; the other workflows stay manual only | `scripts/tests/run.sh` |
 
 `scripts/test-all.sh` runs all of them (`make test`; `make test PARTS="server android"` for
 some). The Apple part also compiles the macOS app, so a Mac-only break fails the run. Under XCTest

@@ -44,18 +44,17 @@ under 10 MB.
 
 ## Hosting
 
-Any static host serves the folder as it is. Nothing here is published yet; these are the options.
+The page is published with GitHub Pages at <https://paralainer.github.io/moonrise/>. Pages
+publishes from the repository root or `docs/`, not from `site/`, so a workflow does it:
 
-**GitHub Pages, from this repository (once it is public, or on a plan that allows Pages for a
-private one).** Pages publishes from the repository root or `docs/`, not from `site/`, so use a
-workflow:
-
-1. Add `.github/workflows/pages.yml` that, on a push to `main` touching `site/**`, runs
-   `actions/configure-pages`, `actions/upload-pages-artifact` with `path: site`, and
-   `actions/deploy-pages` (permissions `pages: write`, `id-token: write`).
-2. In the repository's **Settings → Pages**, set **Source** to **GitHub Actions**.
-3. The page is then at `https://paralainer.github.io/moonrise/`. All paths in it are relative, so it
-   works under that sub-path unchanged.
+1. `.github/workflows/pages.yml` runs on a push to `main` that touches `site/**`, or by hand
+   (**Actions → Pages → Run workflow**). It runs `actions/configure-pages`,
+   `actions/upload-pages-artifact` with `path: site`, and `actions/deploy-pages` (permissions
+   `pages: write`, `id-token: write`; one deployment at a time), and nothing else: no build, no
+   tests. `scripts/tests/pages-workflow.test.sh` checks that it uploads `site` and starts on nothing
+   else, and that the other workflows stay manual only.
+2. The repository's **Settings → Pages → Source** is **GitHub Actions** (a fork sets this once).
+3. All paths in the page are relative, so it works under the `/moonrise/` sub-path unchanged.
 4. A custom domain (optional): enter it under **Settings → Pages → Custom domain**, then point
    DNS at GitHub: a `CNAME` record to `paralainer.github.io` for a subdomain, or the `A`/`AAAA`
    records GitHub lists for an apex domain. Turn on **Enforce HTTPS** once the certificate is

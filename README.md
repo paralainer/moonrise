@@ -16,6 +16,8 @@ the rest. Your library, your devices, your network: no account with anyone, no c
 
 <sub>The library in the screenshots is the Blender Foundation's open movies ([credits](site/CREDITS.md)).</sub>
 
+The project's page: **<https://paralainer.github.io/moonrise/>** (its source is [`site/`](site/README.md)).
+
 ## Status
 
 Moonrise is **pre-release**. It is in daily use, but nothing is in an app store yet and the
