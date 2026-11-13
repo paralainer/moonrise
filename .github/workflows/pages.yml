@@ -1,0 +1,38 @@
+# Publishes the landing page (site/) to GitHub Pages, at https://paralainer.github.io/moonrise/.
+# It runs only on a push to main that changes site/, or by hand (Actions → Pages → Run workflow),
+# and does nothing but upload site/ as it is: no build, no tests. The other workflows stay manual
+# only (CONTRIBUTING.md). scripts/tests/pages-workflow.test.sh keeps it that way.
+
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time; a newer push waits rather than cancelling one in progress.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4

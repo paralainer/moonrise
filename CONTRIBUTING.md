@@ -48,9 +48,11 @@ the export stops (exit status 4), so a typo can't drop your patterns. It reports
 pattern, never the matching line. Fix the commit rather than skipping the hook with `--no-verify`.
 `make check` reminds you when the hooks are off.
 
-GitHub Actions doesn't run on pushes or pull requests. The workflows in `.github/workflows` are
-manual only (`workflow_dispatch`): a maintainer can start one by hand for a hosted build, but a
-green run there is not required and doesn't replace the local check.
+GitHub Actions doesn't run on pull requests, and builds and tests never run on their own. The
+build workflows in `.github/workflows` are manual only (`workflow_dispatch`): a maintainer can start
+one by hand for a hosted build, but a green run there is not required and doesn't replace the local
+check. The one exception is `pages.yml`, which publishes the landing page when a push to `main`
+changes `site/` ([site/README.md](site/README.md#hosting)); it builds and tests nothing.
 
 ## Versions
 
