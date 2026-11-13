@@ -78,9 +78,9 @@ check_metadata() {
       echo "keywords: no spaces around the commas (they count against the 100): $(basename "$loc")/keywords.txt"; bad=1
     fi
   done
-  f=$dir/review_information/notes.txt
-  if [ ! -f "$f" ]; then echo "missing: review_information/notes.txt"; bad=1
-  else n=$(LC_ALL=$U8 wc -m < "$f"); [ "$n" -le 4000 ] || { echo "too long: review_information/notes.txt has $n characters (limit 4000)"; bad=1; }; fi
+  f=$dir/../review_notes.txt
+  if [ ! -f "$f" ]; then echo "missing: review_notes.txt"; bad=1
+  else n=$(LC_ALL=$U8 wc -m < "$f"); [ "$n" -le 4000 ] || { echo "too long: review_notes.txt has $n characters (limit 4000)"; bad=1; }; fi
   return $bad
 }
 

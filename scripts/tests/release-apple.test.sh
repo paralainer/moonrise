@@ -12,7 +12,7 @@
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 C=$(fresh_clone)
 mkdir -p "$C/clients/apple/fastlane" "$SCRATCH/bin"
-cp -r "$REPO/clients/apple/fastlane/metadata" "$C/clients/apple/fastlane/"
+cp -r "$REPO/clients/apple/fastlane/metadata" "$REPO/clients/apple/fastlane/review_notes.txt" "$C/clients/apple/fastlane/"
 cp "$REPO/clients/apple/project.yml" "$C/clients/apple/"
 printf 'MOONRISE_BUNDLE_ID = org.example.store\nMOONRISE_DEVELOPMENT_TEAM = ABCDE12345\n' > "$C/clients/apple/Config/Signing.local.xcconfig"
 LOG="$SCRATCH/calls.log"; export LOG
@@ -69,10 +69,10 @@ expect_status 1 $rc "a plain http support URL" "$out"
 expect_in "not an https URL: en-US/support_url.txt" "$out" "names it"
 restore
 
-rm "$M/review_information/notes.txt"
+mv "$C/clients/apple/fastlane/review_notes.txt" "$SCRATCH/notes"
 out=$(run check-metadata); rc=$?
 expect_status 1 $rc "no review notes" "$out"
-restore
+mv "$SCRATCH/notes" "$C/clients/apple/fastlane/review_notes.txt"
 
 out=$(run next-build ios); rc=$?
 expect_status 0 $rc "next-build ios" "$out"
