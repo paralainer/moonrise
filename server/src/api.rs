@@ -3,7 +3,7 @@
 //! - `GET /health`: exactly `ok` (the app checks for that string).
 //! - `GET /v1/info` (public): `{server_id, name, version, capabilities[], setup}` (`setup`:
 //!   `unclaimed` or `claimed`, see `claim.rs`).
-//! - `GET /v1/items/{id}/playback?start=&hdr=&quality=&burn=&abr=` (token): what can
+//! - `GET /v1/items/{id}/playback?start=&hdr=&quality=&abr=` (token): what can
 //!   be served and the master playlist URL. Opening it makes a playback session: the stream
 //!   URLs carry its random id instead of the token (AVPlayer and AirPlay receivers fetch them
 //!   without headers).
@@ -15,13 +15,12 @@
 //!   - `hdr=0`: the display can't show HDR: HDR titles are tone-mapped to SDR (transcoded).
 //!   - `quality` (bits/s, or `original`): the variant played, from the title's ladder
 //!     (`variants[]`, `variant`): the best one within that bitrate.
-//!   - `burn=<index>`: a bitmap subtitle (PGS, DVD) burned into a transcoded variant.
 //!   - `abr=1`: the master lists the lower variants too, for adaptive switching.
 //!   - `lossless=1`: the player decodes FLAC in fMP4 and its audio output takes more than 2
 //!     channels: lossless multichannel tracks (TrueHD, DTS-HD MA, PCM…) are converted to FLAC
 //!     with every channel (up to 7.1) instead of E-AC-3 5.1 (capability `lossless-audio`).
 //!
-//!   Track indices (`audio[].index`, `subtitles[].index`, `burn`, and the `audio/{index}` and
+//!   Track indices (`audio[].index`, `subtitles[].index`, and the `audio/{index}` and
 //!   `subs/{index}` URLs) are the library's (sidecar files first); `stream` is the file's own.
 //!   `audio[].converted` marks tracks served converted (AAC/E-AC-3). `method` is "copy",
 //!   "convert" (some audio converted) or "transcode" (the video variant served is re-encoded);
@@ -52,7 +51,10 @@
 //!   the title): a text track.
 //! - `GET /v1/items/{id}/subtitles/{index}/cues?window=<k>|at=<seconds>` (token, or `sid=`):
 //!   the cues showing during window `k` (30 s), JSON, read for that window alone while the
-//!   track isn't extracted (`subs::Subs::window`). Capability `subtitle-windows`.
+//!   track isn't extracted (`subs::Subs::window`). Capability `subtitle-windows`. A picture
+//!   track (PGS, DVD, DVB) answers the same way with images: `canvas {width, height}`, and
+//!   each cue's `image {x, y, width, height, png}` (base64), which the app draws over the
+//!   video (`pictures.rs`). Capability `subtitle-pictures`.
 //! - `GET /v1/items/{id}/subtitles/search?lang=&q=` (token): OpenSubtitles results for the
 //!   title (by its ids and the file's hash; `q` searches by text instead).
 //! - `POST /v1/items/{id}/subtitles/fetch {result_id}` (token): fetch one; it becomes a track
@@ -201,8 +203,6 @@ struct StreamOptions {
     hdr_display: bool,
     /// Bits/s (None: the original).
     quality: Option<i64>,
-    /// A bitmap subtitle to burn in (its track index).
-    burn: Option<i64>,
     /// List the lower variants in the master too.
     abr: bool,
     /// The player takes lossless multichannel audio as FLAC (`Media::with_lossless`).
@@ -219,7 +219,6 @@ impl StreamOptions {
             start: q.get("start").and_then(|s| s.parse::<f64>().ok()).filter(|s| *s > 1.0),
             hdr_display: q.get("hdr").is_none_or(|v| v != "0"),
             quality: q.get("quality").and_then(|s| s.parse::<i64>().ok()).filter(|b| *b > 0),
-            burn: q.get("burn").and_then(|s| s.parse::<i64>().ok()),
             abr: q.get("abr").is_some_and(|v| v == "1"),
             lossless: q.get("lossless").is_some_and(|v| v == "1"),
             trick: q.get("trick").is_some_and(|v| v == "1"),
@@ -344,6 +343,7 @@ impl AppState {
             subs: Arc::new(Subs::new(
                 config.data_dir.join("subs"),
                 config.ffmpeg.clone(),
+                config.ffprobe.clone(),
                 config.enabled(Feature::SubsExtract),
                 config.disabled.clone(),
             )),
@@ -684,7 +684,7 @@ impl AppState {
                     "sid": sid.chars().take(8).collect::<String>(),
                     "user_id": s.view.owner, "item_id": s.view.moonrise_item,
                     "method": if var.is_some_and(|v| v.transcode) { "transcode" } else if s.view.media.method == "convert" { "convert" } else { "copy" },
-                    "variant": var.map(|v| v.label.clone()), "burn": var.and_then(|v| v.burn), "tonemap": var.is_some_and(|v| v.tonemap),
+                    "variant": var.map(|v| v.label.clone()), "tonemap": var.is_some_and(|v| v.tonemap),
                     "duration": s.view.media.duration, "idle_secs": idle,
                 }))
             })
@@ -734,23 +734,7 @@ impl AppState {
             return plan;
         };
         let transcode = self.config.enabled(Feature::Transcode);
-        let burn = match opts.burn {
-            None => None,
-            Some(_) if !transcode || !self.config.enabled(Feature::Burn) => {
-                plan.reasons.push("burn-in is switched off".into());
-                return plan;
-            }
-            Some(b) => match media.subtitles.iter().find(|s| s.index == b) {
-                Some(s) if !s.text && s.stream.is_some() && BURNABLE.contains(&s.codec.to_ascii_lowercase().as_str()) => {
-                    Some((b, s.stream.unwrap()))
-                }
-                _ => {
-                    plan.reasons.push(format!("subtitle {b} can't be burned in"));
-                    return plan;
-                }
-            },
-        };
-        plan.variants = transcode::ladder(v, opts.hdr_display, burn, transcode);
+        plan.variants = transcode::ladder(v, opts.hdr_display, transcode);
         if plan.variants.is_empty() {
             let why = crate::media::hwaccel::current().too_heavy(v).filter(|_| transcode);
             plan.reasons
@@ -974,9 +958,6 @@ fn new_sid() -> String {
         .collect()
 }
 
-/// Bitmap subtitle codecs that can be burned in (media-server and ffmpeg names).
-const BURNABLE: [&str; 6] = ["pgssub", "hdmv_pgs_subtitle", "dvdsub", "dvd_subtitle", "dvbsub", "dvb_subtitle"];
-
 struct Plan {
     variants: Vec<Variant>,
     selected: usize,
@@ -1119,6 +1100,9 @@ async fn info(State(st): State<Arc<AppState>>) -> Json<Info> {
     if st.config.enabled(Feature::SubsExtract) && st.config.enabled(Feature::SubsWindows) {
         capabilities.push("subtitle-windows");
     }
+    if st.config.enabled(Feature::SubsWindows) {
+        capabilities.push("subtitle-pictures");
+    }
     capabilities.push("subtitle-timing");
     if st.config.enabled(Feature::SubsSync) {
         capabilities.push("subtitle-sync");
@@ -1161,9 +1145,6 @@ async fn info(State(st): State<Arc<AppState>>) -> Json<Info> {
     }
     if st.config.enabled(Feature::Transcode) && crate::media::hwaccel::current().available {
         capabilities.extend(["video-transcode", "quality-ladder", "hdr-tonemap"]);
-        if st.config.enabled(Feature::Burn) {
-            capabilities.push("burn-in");
-        }
     }
     let setup = crate::admin::claim::info_state(crate::admin::claim::refresh(&st).await);
     if setup.is_some() {
@@ -1264,7 +1245,7 @@ async fn playback(
     info.session = session;
     info.tracks = remembered_tracks(&st, &who, moonrise_item, media.file_id.clone()).await;
     tracing::info!(item = %id, auth = who.kind(), supported = info.media.supported, variant = ?info.variant, quality = ?opts.quality, hdr = opts.hdr_display, lossless = opts.lossless,
-        burn = ?opts.burn, reasons = ?info.media.reasons, notes = ?info.notes, "playback");
+        reasons = ?info.media.reasons, notes = ?info.notes, "playback");
     Ok(Json(info))
 }
 
@@ -2036,11 +2017,16 @@ async fn subtitle_window(
         _ => return Err(ApiError(StatusCode::BAD_REQUEST, "want window=<n> or at=<seconds>".into())),
     };
     let media = st.media(&media_key(&id, &q)).await?;
-    if !media.subtitles.iter().any(|s| s.index == index && s.text) {
-        return Err(ApiError(StatusCode::NOT_FOUND, "no such text subtitle track".into()));
-    }
+    let Some(track) = media.subtitles.iter().find(|s| s.index == index) else {
+        return Err(ApiError(StatusCode::NOT_FOUND, "no such subtitle track".into()));
+    };
     if k as f64 * subs::WINDOW > media.duration + subs::WINDOW {
         return Err(ApiError(StatusCode::NOT_FOUND, "past the end".into()));
+    }
+    if !track.text {
+        // A picture track: its images, with their place on the video.
+        let w = st.subs.picture_window(&media, index, k).await.map_err(ApiError::internal)?;
+        return Ok(([(header::CACHE_CONTROL, "no-cache")], Json(w)).into_response());
     }
     let w = st.subs.window(&media, index, k).await.map_err(ApiError::internal)?;
     Ok(([(header::CACHE_CONTROL, "no-cache")], Json(w)).into_response())
@@ -2386,7 +2372,7 @@ mod tests {
             moonrise_item: None,
             media,
             opts,
-            variants: Arc::new(crate::media::transcode::ladder(&v, true, None, false)),
+            variants: Arc::new(crate::media::transcode::ladder(&v, true, false)),
             selected: 0,
         }
     }

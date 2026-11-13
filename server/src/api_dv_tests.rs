@@ -14,7 +14,7 @@ fn view(media: Media, query: &str, transcode: bool) -> View {
             .collect(),
     );
     let v = media.video.clone().unwrap();
-    let variants = crate::media::transcode::ladder_with(&crate::media::hwaccel::Hw::nvenc(), &v, opts.hdr_display, None, transcode);
+    let variants = crate::media::transcode::ladder_with(&crate::media::hwaccel::Hw::nvenc(), &v, opts.hdr_display, transcode);
     View {
         sid: "s".into(),
         owner: None,

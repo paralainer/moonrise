@@ -1117,7 +1117,7 @@ pub(crate) mod tests {
             bearer(&admin),
             q(),
             json!({"server": {"name": "Living Room"}, "opensubtitles": {"api_key": "k", "username": "u", "password": "p-secret"},
-                        "features": {"burn": false, "transcode": false}, "performance.jobs": 6, "tmdb.api_key": "store-key-abcdefghijk"})
+                        "features": {"convert": false, "transcode": false}, "performance.jobs": 6, "tmdb.api_key": "store-key-abcdefghijk"})
             .to_string()
             .into(),
         )
@@ -1125,7 +1125,7 @@ pub(crate) mod tests {
         .unwrap();
         assert_eq!(st.name(), "Living Room");
         assert!(st.opensubtitles.configured());
-        assert!(!st.config.enabled(Feature::Burn), "a live switch");
+        assert!(!st.config.enabled(Feature::Convert), "a live switch");
         assert!(st.config.enabled(Feature::Transcode), "a restart-only switch waits for the restart");
         assert_eq!(doc["restart_required"], json!(["performance.jobs", "features.transcode"]));
         assert_eq!(

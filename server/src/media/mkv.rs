@@ -48,6 +48,74 @@ pub struct TrackInfo {
     pub encoded: bool,
     /// Nanoseconds (0: none).
     pub default_duration: u64,
+    /// How its blocks are stored, when `encoded` (picture subtitles read it; text tracks don't).
+    pub encoding: Encoding,
+    /// CodecPrivate (a VobSub track's palette and size, as `.idx` text).
+    pub codec_private: Vec<u8>,
+}
+
+/// A track's ContentEncodings, as far as reading its blocks goes.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum Encoding {
+    /// Plain blocks.
+    #[default]
+    None,
+    /// zlib-compressed blocks (mkvmerge's default for picture subtitles).
+    Zlib,
+    /// Header stripping: these bytes come off the front of every block.
+    Stripped(Vec<u8>),
+    /// Anything else (encrypted, another compression): unreadable here.
+    Other,
+}
+
+impl Encoding {
+    /// The ContentEncodings element's body.
+    fn parse(body: &[u8]) -> Encoding {
+        let Ok(encodings) = children(body) else { return Encoding::Other };
+        let mut found = Encoding::None;
+        for (id, enc) in encodings {
+            if id != CONTENT_ENCODING || !matches!(found, Encoding::None) {
+                return Encoding::Other;
+            }
+            let Ok(parts) = children(enc) else { return Encoding::Other };
+            for (pid, pbody) in parts {
+                match pid {
+                    CONTENT_COMPRESSION => {
+                        let Ok(c) = children(pbody) else { return Encoding::Other };
+                        let algo = c.iter().find(|(i, _)| *i == CONTENT_COMP_ALGO).map_or(0, |(_, b)| uint(b));
+                        let settings = c.iter().find(|(i, _)| *i == CONTENT_COMP_SETTINGS).map(|(_, b)| b.to_vec());
+                        found = match (algo, settings) {
+                            (0, _) => Encoding::Zlib,
+                            (3, Some(b)) => Encoding::Stripped(b),
+                            _ => return Encoding::Other,
+                        };
+                    }
+                    CONTENT_ENCRYPTION => return Encoding::Other,
+                    // Only every frame (1, the default) is supported.
+                    CONTENT_ENCODING_SCOPE if uint(pbody) & 1 == 0 => return Encoding::Other,
+                    _ => {}
+                }
+            }
+        }
+        found
+    }
+
+    /// A block's payload as stored by the muxer.
+    pub fn decode(&self, data: Vec<u8>) -> Result<Vec<u8>> {
+        match self {
+            Encoding::None => Ok(data),
+            Encoding::Zlib => {
+                use std::io::Read as _;
+                let mut out = Vec::with_capacity(data.len() * 4);
+                flate2::read::ZlibDecoder::new(&data[..])
+                    .take(64 * 1024 * 1024)
+                    .read_to_end(&mut out)?;
+                Ok(out)
+            }
+            Encoding::Stripped(head) => Ok([head.as_slice(), &data].concat()),
+            Encoding::Other => bail!("the track's blocks are encrypted or compressed in an unknown way"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -72,6 +140,13 @@ impl Index {
 const TRACK_CODEC: u32 = 0x86;
 const CONTENT_ENCODINGS: u32 = 0x6D80;
 const DEFAULT_DURATION: u32 = 0x23E383;
+const CODEC_PRIVATE: u32 = 0x63A2;
+const CONTENT_ENCODING: u32 = 0x6240;
+const CONTENT_ENCODING_SCOPE: u32 = 0x5032;
+const CONTENT_COMPRESSION: u32 = 0x5034;
+const CONTENT_COMP_ALGO: u32 = 0x4254;
+const CONTENT_COMP_SETTINGS: u32 = 0x4255;
+const CONTENT_ENCRYPTION: u32 = 0x5035;
 const CUE_CLUSTER_POSITION: u32 = 0xF1;
 const CUE_RELATIVE_POSITION: u32 = 0xF0;
 const CUE_DURATION: u32 = 0xB2;
@@ -232,13 +307,19 @@ pub async fn index_with(rd: &impl RangeRead) -> Result<Index> {
                 codec: String::new(),
                 encoded: false,
                 default_duration: 0,
+                encoding: Encoding::None,
+                codec_private: Vec::new(),
             };
             for (tid, tbody) in children(body)? {
                 match tid {
                     TRACK_NUMBER => t.number = uint(tbody),
                     TRACK_TYPE => t.kind = uint(tbody),
                     TRACK_CODEC => t.codec = String::from_utf8_lossy(tbody).trim_end_matches('\0').to_string(),
-                    CONTENT_ENCODINGS => t.encoded = true,
+                    CONTENT_ENCODINGS => {
+                        t.encoded = true;
+                        t.encoding = Encoding::parse(tbody);
+                    }
+                    CODEC_PRIVATE => t.codec_private = tbody.to_vec(),
                     DEFAULT_DURATION => t.default_duration = uint(tbody),
                     _ => {}
                 }
@@ -458,6 +539,36 @@ impl<'a> Reader<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn content_encodings_of_picture_tracks() {
+        // mkvmerge's default for picture subtitles: zlib (algorithm 0, or no algorithm given).
+        let zlib = el(CONTENT_ENCODING, &el(CONTENT_COMPRESSION, &uel(CONTENT_COMP_ALGO, 0)));
+        let e = Encoding::parse(&zlib);
+        assert_eq!(e, Encoding::Zlib);
+        let mut z = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        std::io::Write::write_all(&mut z, b"picture data").unwrap();
+        assert_eq!(e.decode(z.finish().unwrap()).unwrap(), b"picture data");
+        assert_eq!(
+            Encoding::parse(&el(CONTENT_ENCODING, &el(CONTENT_COMPRESSION, &[]))),
+            Encoding::Zlib
+        );
+        // Header stripping: the bytes go back on the front.
+        let strip = el(
+            CONTENT_ENCODING,
+            &el(
+                CONTENT_COMPRESSION,
+                &[uel(CONTENT_COMP_ALGO, 3), el(CONTENT_COMP_SETTINGS, &[0x0F, 0x10])].concat(),
+            ),
+        );
+        let e = Encoding::parse(&strip);
+        assert_eq!(e, Encoding::Stripped(vec![0x0F, 0x10]));
+        assert_eq!(e.decode(vec![1, 2]).unwrap(), [0x0F, 0x10, 1, 2]);
+        // Encrypted: not readable here.
+        let enc = el(CONTENT_ENCODING, &el(CONTENT_ENCRYPTION, &[]));
+        assert_eq!(Encoding::parse(&enc), Encoding::Other);
+        assert!(Encoding::Other.decode(vec![1]).is_err());
+    }
 
     /// A file in memory; reads past the end come back short, as from a file.
     struct Mem(Vec<u8>);

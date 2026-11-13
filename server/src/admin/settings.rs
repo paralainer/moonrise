@@ -1127,7 +1127,7 @@ mod tests {
         assert_eq!(source(&env(&[("MOONRISE_DISABLE", "llm")]), &store, "features.llm").0, "env");
         assert!(validate("features.moonrise_auth", &json!(false)).is_err());
         assert!(validate("features.nope", &json!(false)).is_err());
-        assert_eq!(validate("features.burn", &json!(false)), Ok(Some(json!(false))));
+        assert_eq!(validate("features.convert", &json!(false)), Ok(Some(json!(false))));
     }
 
     #[test]
@@ -1215,13 +1215,13 @@ mod tests {
 
     #[test]
     fn flatten_nested_and_dotted() {
-        let v = json!({"metadata": {"country": "GB"}, "llm.model": "m", "tmdb": {"api_key": {"set": true, "last4": "1234"}}, "features": {"burn": false}});
+        let v = json!({"metadata": {"country": "GB"}, "llm.model": "m", "tmdb": {"api_key": {"set": true, "last4": "1234"}}, "features": {"convert": false}});
         let mut f = flatten(&v);
         f.sort_by(|a, b| a.0.cmp(&b.0));
         assert_eq!(
             f,
             vec![
-                ("features.burn".into(), json!(false)),
+                ("features.convert".into(), json!(false)),
                 ("llm.model".into(), json!("m")),
                 ("metadata.country".into(), json!("GB"))
             ]
@@ -1270,7 +1270,7 @@ mod tests {
             ("ANTHROPIC_API_KEY", "sk-ant-secret-wxyz"),
             ("MOONRISE_TMDB_COUNTRY", "AU"),
             ("MOONRISE_JOBS", "3"),
-            ("MOONRISE_DISABLE", "burn,db"),
+            ("MOONRISE_DISABLE", "convert,db"),
             ("MOONRISE_LIBRARIES", "Movies=movies:/media/movies;Shows=shows:/media/tv shows"),
             ("MOONRISE_DATA_DIR", "/data"),
         ]);
@@ -1294,7 +1294,7 @@ mod tests {
         );
         assert_eq!(st.get("metadata.country"), Some(&json!("AU")));
         assert_eq!(st.get("performance.jobs"), Some(&json!(3)));
-        assert_eq!(st.get("features.burn"), Some(&json!(false)));
+        assert_eq!(st.get("features.convert"), Some(&json!(false)));
         assert_eq!(st.get("features.db"), None, "env-only switches aren't imported");
         assert_eq!(st.get("metadata.language"), None, "defaults aren't imported");
         assert_eq!(st.libraries().len(), 2);

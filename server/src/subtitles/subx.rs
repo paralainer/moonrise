@@ -397,6 +397,30 @@ pub async fn window_by_scan(
     parts: usize,
     pace: Pace<'_>,
 ) -> Result<(HashMap<i64, Vec<Cue>>, u64)> {
+    let (found, bytes) = scan_found(file, index, wants, from, to, lead, parts, pace).await?;
+    let cues = to_cues(index, wants, found)
+        .into_iter()
+        .map(|(s, c)| (s, overlapping(c, from, to)))
+        .collect();
+    Ok((cues, bytes))
+}
+
+/// The blocks of every `wants` track in the clusters from the keyframe `lead` seconds before
+/// `from` to the one a little past `to`, read in up to `parts` pieces at once, and the bytes read.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the steps' inputs, passed through; a struct for one call would only rename them"
+)]
+async fn scan_found(
+    file: &File,
+    index: &Index,
+    wants: &[Want],
+    from: f64,
+    to: f64,
+    lead: f64,
+    parts: usize,
+    pace: Pace<'_>,
+) -> Result<(Vec<Found>, u64)> {
     let mut points: Vec<(f64, u64)> = index
         .cues
         .iter()
@@ -431,11 +455,95 @@ pub async fn window_by_scan(
     for r in results {
         found.extend(r?);
     }
-    let cues = to_cues(index, wants, found)
-        .into_iter()
-        .map(|(s, c)| (s, overlapping(c, from, to)))
+    Ok((found, end - start))
+}
+
+/// Matroska codecs of picture subtitles (`bitmap.rs` decodes them).
+pub const PICTURE_CODECS: [&str; 3] = ["S_HDMV/PGS", "S_VOBSUB", "S_DVBSUB"];
+
+/// A picture subtitle block: its time and duration in seconds of the file's own time, and its
+/// payload as the codec has it (the track's compression undone).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Block {
+    pub time: f64,
+    pub duration: Option<f64>,
+    pub data: Vec<u8>,
+}
+
+/// The picture subtitle track of ffmpeg's stream `stream`, if the file's track list lines up
+/// and its blocks can be read here.
+pub fn picture_want(index: &Index, stream: i64) -> Option<Want> {
+    let t = index.tracks.get(usize::try_from(stream).ok()?)?;
+    (t.kind == 17 && PICTURE_CODECS.contains(&t.codec.as_str()) && t.encoding != mkv::Encoding::Other).then(|| Want {
+        stream,
+        track: t.number,
+        codec: t.codec.clone(),
+        default_duration: t.default_duration,
+    })
+}
+
+/// The blocks of a picture track starting during [from, to), by the index (`Method::Cues`), and
+/// the cluster header length learned.
+pub async fn picture_blocks_by_cues(
+    file: &File,
+    index: &Index,
+    want: &Want,
+    from: f64,
+    to: f64,
+    header: Option<u64>,
+) -> Result<(Vec<Block>, u64)> {
+    let targets: Vec<mkv::CuePoint> = index
+        .cues
+        .iter()
+        .filter(|c| c.track == want.track)
+        .filter(|c| {
+            let t = index.secs(c.time as i64);
+            t >= from && t < to
+        })
+        .copied()
         .collect();
-    Ok((cues, end - start))
+    let (found, header) = read_blocks(file, index, targets, header, &fast).await?;
+    Ok((to_blocks(index, want, found)?, header))
+}
+
+/// The blocks of a picture track starting during [from, to), by scanning that stretch of the
+/// file, and the bytes read.
+pub async fn picture_blocks_by_scan(
+    file: &File,
+    index: &Index,
+    want: &Want,
+    from: f64,
+    to: f64,
+    pace: Pace<'_>,
+) -> Result<(Vec<Block>, u64)> {
+    let (found, bytes) = scan_found(file, index, std::slice::from_ref(want), from, to, 0.0, 2, pace).await?;
+    let blocks = to_blocks(index, want, found)?
+        .into_iter()
+        .filter(|b| b.time >= from && b.time < to)
+        .collect();
+    Ok((blocks, bytes))
+}
+
+/// A picture track's blocks in time order, decompressed.
+fn to_blocks(index: &Index, want: &Want, mut found: Vec<Found>) -> Result<Vec<Block>> {
+    let encoding = index
+        .tracks
+        .iter()
+        .find(|t| t.number == want.track)
+        .map(|t| t.encoding.clone())
+        .unwrap_or_default();
+    found.retain(|f| f.track == want.track);
+    found.sort_by_key(|f| f.time);
+    found
+        .into_iter()
+        .map(|f| {
+            Ok(Block {
+                time: index.secs(f.time),
+                duration: f.duration.map(|d| index.secs(d as i64)).filter(|d| *d > 0.0),
+                data: encoding.decode(f.data)?,
+            })
+        })
+        .collect()
 }
 
 /// The bytes of each span (offset, length), in the order given: spans near each other are read

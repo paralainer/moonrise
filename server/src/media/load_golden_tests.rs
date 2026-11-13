@@ -730,7 +730,7 @@ async fn a_title_opened_before_the_scan_probed_it_has_its_real_bitrate() {
     let media = media.unwrap();
     let video = media.video.as_ref().unwrap();
     assert_eq!(video.bitrate, 12_140_071);
-    let ladder = transcode::ladder_with(&Hw::cpu(4), video, false, None, true);
+    let ladder = transcode::ladder_with(&Hw::cpu(4), video, false, true);
     assert!(ladder[0].is_copy() && ladder[0].bitrate == 12_140_071, "{ladder:?}");
     // A 3 Mb/s limit gets a transcode within it, not the copy.
     let chosen = &ladder[transcode::select(&ladder, Some(3_000_000))];
