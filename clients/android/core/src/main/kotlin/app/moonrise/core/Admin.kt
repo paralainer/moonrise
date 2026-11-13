@@ -330,7 +330,6 @@ data class ActivitySession(
     val method: String = "copy",
     val variant: String? = null,
     val tonemap: Boolean? = null,
-    val burn: Int? = null,
     val duration: Double? = null,
     val position: Double? = null,
 )

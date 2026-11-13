@@ -196,9 +196,9 @@ class AdminRulesTest {
 
     @Test
     fun activityLines() {
-        val s = ActivitySession("s", user = "demo", title = "Episode 1", seriesTitle = "Demo", episodeLabel = "S1E1", method = "transcode", variant = "720p", tonemap = true, burn = 3, duration = 3600.0, position = 60.0)
+        val s = ActivitySession("s", user = "demo", title = "Episode 1", seriesTitle = "Demo", episodeLabel = "S1E1", method = "transcode", variant = "720p", tonemap = true, duration = 3600.0, position = 60.0)
         assertEquals("Demo · S1E1", AdminRules.sessionTitle(s))
-        assertEquals("demo · Transcoding · 720p · HDR→SDR · subtitles burned in · 1:00 of 1:00:00", AdminRules.sessionLine(s))
+        assertEquals("demo · Transcoding · 720p · HDR→SDR · 1:00 of 1:00:00", AdminRules.sessionLine(s))
         assertEquals("Direct", AdminRules.sessionLine(ActivitySession("s")))
         assertEquals("Off", AdminRules.scanText(null, now))
         assertEquals("Idle", AdminRules.scanText(ActivityScan(), now))

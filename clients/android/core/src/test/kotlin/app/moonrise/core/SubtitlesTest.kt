@@ -130,19 +130,81 @@ class SubtitlesTest {
         }
     }
 
+    /** Picture subtitles are drawn by the app: the stream is asked for as it is, never with one burned in. */
     @Test
-    fun playbackAsksForBurnIn() {
+    fun playbackNeverAsksForBurnIn() {
         val server = MockWebServer()
         server.enqueue(MockResponse().setBody("""{"supported":true,"master":"/v1/s/abc/master.m3u8","session":"abc"}"""))
         server.start()
         try {
             val api = MoonriseApi(server.url("/"), token = "t", deviceId = "d", deviceName = "n")
-            runBlocking { api.playback("m1", start = 30.0, hdr = false, burn = 5) }
+            runBlocking { api.playback("m1", start = 30.0, hdr = false) }
             val u = server.takeRequest().requestUrl!!
-            assertEquals("5", u.queryParameter("burn"))
+            assertNull(u.queryParameter("burn"))
             assertEquals("0", u.queryParameter("hdr"))
         } finally {
             server.shutdown()
         }
+    }
+
+    private val pictureWindow = """{"index":2,"window":1,"from":30.0,"to":60.0,"span":30.0,"complete":false,"source":"index",
+        "canvas":{"width":720,"height":480},
+        "cues":[{"start":31.0,"end":33.5,"text":"","image":{"x":100,"y":400,"width":200,"height":40,"png":"iVBORw0KGgo="}},
+                {"start":33.0,"end":36.0,"text":"","image":{"x":100,"y":20,"width":150,"height":30,"png":"AAAA"}}]}"""
+
+    @Test
+    fun pictureWindowJson() {
+        val w = MoonriseApi.json.decodeFromString(SubtitleWindow.serializer(), pictureWindow)
+        assertEquals(SubtitleWindow.Canvas(720, 480), w.canvas)
+        assertEquals(2, w.pictures.size)
+        assertEquals(PictureCue(31.0, 33.5, 100, 400, 200, 40, "iVBORw0KGgo="), w.pictures[0])
+        // A text track's window has no pictures.
+        val text = MoonriseApi.json.decodeFromString(SubtitleWindow.serializer(), """{"window":0,"cues":[{"start":1.0,"end":2.0,"text":"Hi"}]}""")
+        assertTrue(text.pictures.isEmpty())
+        assertNull(text.canvas)
+    }
+
+    @Test
+    fun picturesShowingAtATimeWithTheDelay() {
+        val cues = PictureCues()
+        assertEquals(2, cues.add(MoonriseApi.json.decodeFromString(SubtitleWindow.serializer(), pictureWindow)).size)
+        // The same pictures again (the next window's lead): nothing new.
+        assertEquals(0, cues.add(MoonriseApi.json.decodeFromString(SubtitleWindow.serializer(), pictureWindow)).size)
+        assertEquals(2, cues.cues.size)
+        assertEquals(listOf(400), cues.at(32.0).map { it.y })
+        assertEquals(listOf(400, 20), cues.at(33.2).map { it.y })
+        assertEquals(listOf(20), cues.at(33.5).map { it.y })
+        assertTrue(cues.at(36.0).isEmpty())
+        // A delay of +2 s: the playhead at 34 shows the track's 32.
+        val delay = 2.0
+        assertEquals(listOf(400), cues.at(34.0 - delay).map { it.y })
+    }
+
+    @Test
+    fun canvasOntoTheVideo() {
+        // A 16:9 video fitted into a 4:3 view: letterboxed.
+        val video = PictureSubtitles.videoRect(1200f, 900f, 16f / 9f)
+        assertEquals(PictureRect(0f, 112.5f, 1200f, 675f), video)
+        // Filling the view instead: cropped at the sides.
+        assertEquals(PictureRect(-200f, 0f, 1600f, 900f), PictureSubtitles.videoRect(1200f, 900f, 16f / 9f, fill = true))
+        // A DVD's 720 × 480 canvas stretched over the 16:9 picture, across and down separately.
+        val cue = PictureCue(0.0, 1.0, 360, 240, 72, 48, "")
+        val r = PictureSubtitles.place(cue, SubtitleWindow.Canvas(720, 480), video)
+        assertEquals(600f, r.x, 0.01f)
+        assertEquals(112.5f + 337.5f, r.y, 0.01f)
+        assertEquals(120f, r.width, 0.01f)
+        assertEquals(67.5f, r.height, 0.01f)
+        // A pillarboxed 4:3 video in a 16:9 view.
+        assertEquals(PictureRect(240f, 0f, 1440f, 1080f), PictureSubtitles.videoRect(1920f, 1080f, 4f / 3f))
+        // Filling the view: a picture at the bottom of the cropped video stays on screen.
+        val filled = PictureSubtitles.videoRect(1200f, 900f, 16f / 9f, fill = true)
+        val low = PictureSubtitles.place(PictureCue(0.0, 1.0, 1700, 1070, 400, 40, ""), SubtitleWindow.Canvas(1920, 1080), filled)
+        val kept = PictureSubtitles.keepInside(low, 1200f, 900f)
+        assertEquals(900f - low.height, kept.y, 0.01f)
+        assertEquals(1200f - low.width, kept.x, 0.01f)
+        // Inside already: unchanged.
+        assertEquals(r, PictureSubtitles.keepInside(r, 1200f, 900f))
+        // Size not known yet: the whole view.
+        assertEquals(PictureRect(0f, 0f, 1920f, 1080f), PictureSubtitles.videoRect(1920f, 1080f, null))
     }
 }

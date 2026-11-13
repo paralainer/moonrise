@@ -4,8 +4,9 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 // Subtitles as the Apple apps show them (`clients/apple/Moonrise/Subtitles/`): the server's text tracks are
-// fetched as files and drawn by the app (so their delay can be changed), bitmap tracks are burned
-// in by the server, and tracks can be found on OpenSubtitles through the server.
+// fetched as files and drawn by the app (so their delay can be changed), picture tracks (PGS, DVD,
+// DVB) come as timed images in the same windows and are drawn over the video, and tracks can be
+// found on OpenSubtitles through the server.
 
 data class SubtitleCue(val start: Double, val end: Double, val text: String)
 
@@ -201,7 +202,10 @@ data class SubtitleTrack(
 @Serializable
 internal data class SubtitleList(val subtitles: List<SubtitleTrack> = emptyList())
 
-/** A window of an embedded track (`/subtitles/{index}/cues?window=k`): the cues of 30 s of the file. */
+/**
+ * A window of an embedded track (`/subtitles/{index}/cues?window=k`): the cues of 30 s of the file.
+ * A picture track's window has a `canvas` and its cues an `image` each (and no text).
+ */
 @Serializable
 data class SubtitleWindow(
     val window: Int,
@@ -209,10 +213,23 @@ data class SubtitleWindow(
     val to: Double = 0.0,
     val complete: Boolean = false,
     val source: String? = null,
+    val canvas: Canvas? = null,
     val cues: List<Cue> = emptyList(),
 ) {
     @Serializable
-    data class Cue(val start: Double, val end: Double, val text: String)
+    data class Cue(val start: Double, val end: Double, val text: String = "", val image: Image? = null)
+
+    /** Where on the canvas, and the PNG (base64). */
+    @Serializable
+    data class Image(val x: Int, val y: Int, val width: Int, val height: Int, val png: String)
+
+    /** The frame a picture track's images are placed on (the video's frame they were made for). */
+    @Serializable
+    data class Canvas(val width: Int, val height: Int)
+
+    /** The picture cues of this window (none for a text track). */
+    val pictures: List<PictureCue>
+        get() = cues.mapNotNull { c -> c.image?.let { PictureCue(c.start, c.end, it.x, it.y, it.width, it.height, it.png) } }
 
     companion object {
         const val SPAN = 30.0
@@ -280,3 +297,73 @@ data class SubtitleSearch(
     @SerialName("remaining_downloads") val remainingDownloads: Int? = null,
     val quota: SubtitleQuota? = null,
 )
+
+/** One image of a picture track, shown from `start` to `end`, at (x, y) on the track's canvas; `png` is base64. */
+data class PictureCue(val start: Double, val end: Double, val x: Int, val y: Int, val width: Int, val height: Int, val png: String) {
+    /** The same picture in two windows is one: by its time and place. */
+    val key: String get() = "$start|$end|$x|$y"
+}
+
+/** A rectangle in view pixels. */
+data class PictureRect(val x: Float, val y: Float, val width: Float, val height: Float)
+
+/**
+ * A picture track as far as its windows have come: the cues by key (a picture in two windows
+ * counts once), sorted by start, and which show at a time.
+ */
+class PictureCues {
+    private val byKey = LinkedHashMap<String, PictureCue>()
+    var canvas: SubtitleWindow.Canvas? = null
+        private set
+    var cues: List<PictureCue> = emptyList()
+        private set
+
+    /** Adds a window's pictures; answers the ones that are new. */
+    fun add(w: SubtitleWindow): List<PictureCue> {
+        w.canvas?.let { canvas = it }
+        val new = w.pictures.filter { byKey.putIfAbsent(it.key, it) == null }
+        if (new.isNotEmpty()) cues = byKey.values.sortedWith(compareBy({ it.start }, { it.end }))
+        return new
+    }
+
+    /** The pictures showing at `t` (the track's time: the playhead minus the delay). */
+    fun at(t: Double): List<PictureCue> = PictureSubtitles.at(cues, t)
+}
+
+/** How picture subtitles are timed and placed, as the other apps do. */
+object PictureSubtitles {
+    /** The pictures of `cues` (sorted by start) showing at `t`. */
+    fun at(cues: List<PictureCue>, t: Double): List<PictureCue> = cues.filter { it.start <= t && t < it.end }
+
+    /**
+     * Where the video shows in a view of `viewW` × `viewH`: fitted (letter- or pillar-boxed), or
+     * filling it (`fill`, cropped), for a picture of aspect `videoAspect` (width / height as shown).
+     */
+    fun videoRect(viewW: Float, viewH: Float, videoAspect: Float?, fill: Boolean = false): PictureRect {
+        if (videoAspect == null || videoAspect <= 0f || viewW <= 0f || viewH <= 0f) return PictureRect(0f, 0f, viewW, viewH)
+        val viewAspect = viewW / viewH
+        val wide = videoAspect > viewAspect
+        val (w, h) = if (wide != fill) viewW to viewW / videoAspect else viewH * videoAspect to viewH
+        return PictureRect((viewW - w) / 2f, (viewH - h) / 2f, w, h)
+    }
+
+    /**
+     * A picture's place in the view: the canvas stretched over the video's rectangle, across and
+     * down separately (a DVD's 720 × 480 canvas covers a 16:9 picture).
+     */
+    fun place(cue: PictureCue, canvas: SubtitleWindow.Canvas, video: PictureRect): PictureRect {
+        val sx = video.width / canvas.width.coerceAtLeast(1)
+        val sy = video.height / canvas.height.coerceAtLeast(1)
+        return PictureRect(video.x + cue.x * sx, video.y + cue.y * sy, cue.width * sx, cue.height * sy)
+    }
+
+    /**
+     * A placed picture moved into the view when the video fills it (cropped at the edges): a line at
+     * the bottom of a 2.39:1 picture filling a phone stays on screen, not cut off with the video.
+     */
+    fun keepInside(r: PictureRect, viewW: Float, viewH: Float): PictureRect {
+        val x = if (r.width >= viewW) (viewW - r.width) / 2f else r.x.coerceIn(0f, viewW - r.width)
+        val y = if (r.height >= viewH) (viewH - r.height) / 2f else r.y.coerceIn(0f, viewH - r.height)
+        return PictureRect(x, y, r.width, r.height)
+    }
+}

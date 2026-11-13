@@ -35,6 +35,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import app.moonrise.shared.player.pictureSubtitles
 import androidx.tv.material3.Text
 import app.moonrise.core.Item
 import app.moonrise.shared.player.PlayerModel
@@ -120,6 +121,8 @@ fun PlayerScreen(item: Item, start: Double?, version: String?, onExit: () -> Uni
             modifier = Modifier.fillMaxSize(),
         )
 
+        // Picture subtitles where the track places them on the picture; text ones below.
+        Box(Modifier.fillMaxSize().pictureSubtitles(model))
         BoxWithConstraints(Modifier.fillMaxSize()) {
             SubtitleOverlay(model.subtitleText.takeIf { !model.recovering && model.failure == null }, raised = controlsVisible, height = maxHeight)
         }
