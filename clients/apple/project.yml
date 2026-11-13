@@ -56,6 +56,9 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         # tvOS: system accent. A white one turns button text white on the white focus platter.
         "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME[sdk=appletv*]": ""
+        # macOS: system accent too. AppKit draws the hovered menu row in the app's accent with
+        # white text, so a white accent left a blank white box (SwiftUI views keep `.tint(Theme.accent)`).
+        "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME[sdk=macosx*]": ""
         "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": Moonrise/Support/Moonrise-macOS.entitlements
         # tvOS: the keychain access group it shares with the Top Shelf extension (MoonriseTopShelf).
         # Keychain groups of your team need no registration, so automatic signing covers them. The

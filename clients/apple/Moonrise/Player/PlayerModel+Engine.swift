@@ -236,6 +236,7 @@ extension PlayerModel {
         }
         currentTime = t
         if let d = engine?.duration, d > 0 { duration = d }
+        if let s = engine?.presentationSize, s != videoSize { videoSize = s }
         #if DEBUG
         // Local playback: where it is, every 5 s (watch-while-downloading checks).
         if local != nil, Date().timeIntervalSince(lastLocalLog) >= 5 {

@@ -60,6 +60,14 @@ at 0.1.0); app changes that shipped together with a server release are listed un
 - Android TV: the release app no longer writes its debug and info lines to the system log (focus,
   player steps, sync); warnings and errors still go there. The Dev app logs as before.
 
+### Fixed
+
+- Mac player: a video narrower than the player (a 4:3 episode in a wide window) keeps its scrubber
+  and buttons on the picture, not over the black bars beside it, and subtitles stay above the
+  scrubber. Playing on the title page (Mac and iPad), Download sits right after the title instead of
+  alone at the far end of the column. Mac menus: the hovered row is readable (the system accent, no
+  longer a white box).
+
 ### Removed
 
 - Server 0.33.0: burning picture subtitles into the video, with the `burn=` playback option, the

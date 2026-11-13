@@ -128,6 +128,9 @@ Past bugs and the tests that guard them. Add a row with every fix, saying what b
 | Home was blank when the server had no rows | `ContinueWatchingTests.homeSaysSoOnlyWhenTheServerAnsweredWithNothing` |
 | Top Shelf cards and deep links | `ContinueWatchingTests.topShelfCards`, `topShelfLinks` |
 | Subtitles under the player's buttons (iPhone landscape and portrait, iPad, the title page's small player) | `SubtitlePlacementTests` |
+| Mac player: a pillarboxed (4:3) video had its scrubber and top buttons over the black bars, not on the picture; the scrubber covered the second subtitle line | `PictureFrameTests` `pillarboxedControlsSitOnThePicture`, `letterboxedControlsSitOnThePicture`, `fillOrUnknownSizeIsTheWholeStage`, `neverNarrowerThanTheControlsFit`, `subtitlesLiftAboveTheBottomRowWithoutItsReport`, `aReportedBottomRowIsKept`. The look: a Mac running macOS 26 |
+| iPad and Mac title page, playing: Download hung alone at the far end of the title column instead of after the title | `PictureFrameTests.downloadFollowsTheTitle` (`TitleAccessoryRow`) |
+| Mac menus: the hovered row was a blank white box (AppKit draws it in the app's accent, which was white, with white text) | `scripts/tests/accent-color.test.sh` (macOS and tvOS builds use the system accent). The look: a Mac running macOS 26 |
 | tvOS Info tab: missing artwork, genres and rating; a film's heading showed the year | `PlayerInfoFieldsTests` |
 | Sign in with ChatGPT callback parsing | `ChatGPTCallbackTests` |
 | Home didn't reload after a handoff from another device | `ContinueWatchingTests.homeReloadsWhenStale`, `localPlaysLayOverTheServersCards`, `legacyCards`; Kotlin `ClientRulesTest.homeReloadsWhenTheAppComesBack` |
