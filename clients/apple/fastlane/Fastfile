@@ -17,7 +17,7 @@
 #   upload platform:P path:FILE      the .ipa / .pkg to TestFlight (doesn't wait for processing)
 #   builds                           read only: the latest builds, their processing state, TestFlight groups
 #   store_status                     read only: versions, attached builds, texts, review notes, screenshots
-#   metadata platforms:ios,tvos,mac  texts, URLs, categories, copyright, App Review notes and contact
+#   metadata platforms:ios,tvos,mac  texts, URLs, categories, copyright, and with a contact the App Review notes
 #                                    (metadata/) on the editable versions
 #   screenshots platforms:...        the screenshots (screenshots/<ios|appleTV|mac>/en-US), replacing what is there
 #   review platforms:... [ios_build:N] [tvos_build:N] [mac_build:N]
@@ -214,11 +214,17 @@ platform :ios do
   lane :metadata do |options|
     key = asc_key
     app!
+    # Without a contact the texts still go up; the review notes and contact wait for one (review sets them too).
+    review_info = begin
+      review_contact!.merge(demo_required: false, notes: review_notes)
+    rescue FastlaneCore::Interface::FastlaneError => e
+      UI.important("#{e.message}: the review notes and contact are left as they are")
+      {}
+    end
     platform_list(options).each do |name|
       deliver(api_key: key, app_identifier: moonrise_bundle_id, platform: platform!(name)[:fastlane], app_version: store_version,
               metadata_path: File.join(FASTLANE_DIR, "metadata"), skip_binary_upload: true, skip_screenshots: true,
-              app_review_information: review_contact!.merge(demo_required: false, notes: review_notes),
-              submit_for_review: false, force: true, run_precheck_before_submit: false)
+              app_review_information: review_info, submit_for_review: false, force: true, run_precheck_before_submit: false)
       UI.success("#{name}: texts set on #{store_version}")
     end
   end

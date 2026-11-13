@@ -144,7 +144,7 @@ case "$CMD" in
   builds|status) sync_tree; fl "$([ "$CMD" = status ] && echo store_status || echo builds)" ;;
   metadata)
     check_metadata "$DIR/$APPLE_DIR/fastlane/metadata" || exit 1
-    need "$REVIEW_ENV" "no App Review contact: set REVIEW_ENV in scripts/mac.env (a file on the Mac exporting MOONRISE_REVIEW_FIRST_NAME, _LAST_NAME, _PHONE, _EMAIL)"
+    [ -n "$REVIEW_ENV" ] || echo "note: no REVIEW_ENV in scripts/mac.env (a file on the Mac exporting MOONRISE_REVIEW_FIRST_NAME, _LAST_NAME, _PHONE, _EMAIL): the texts go up without the App Review notes and contact" >&2
     sync_tree; fl metadata "platforms:$(platforms "${1:-}")" ;;
   screenshots) sync_tree; fl screenshots "platforms:$(platforms "${1:-}")" ;;
   testers) sync_tree; fl team_testers ;;
