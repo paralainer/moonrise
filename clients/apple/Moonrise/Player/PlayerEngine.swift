@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 enum EngineStatus: Equatable {
@@ -47,4 +48,11 @@ protocol PlayerEngine: AnyObject {
 
     var supportsPictureInPicture: Bool { get }
     func togglePictureInPicture()
+
+    /// The video's picture size as it shows (its display aspect); zero until known.
+    var presentationSize: CGSize { get }
+}
+
+extension PlayerEngine {
+    var presentationSize: CGSize { .zero }
 }

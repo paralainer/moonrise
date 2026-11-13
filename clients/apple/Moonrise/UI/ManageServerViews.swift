@@ -1043,15 +1043,15 @@ struct PlaybackAdminView: View {
 
     private func hardwareFooter(_ s: MoonriseClient.SystemInfo) -> String {
         switch s.transcoding {
-        case "nvenc", "qsv", "vaapi": return "Lower qualities, codecs Apple devices can't play, HDR for SDR screens and burned-in subtitles are made on the GPU. Everything else is streamed as it is."
-        case "videotoolbox": return "Lower qualities, codecs Apple devices can't play, HDR for SDR screens and burned-in subtitles are made by the Mac's media engine (VideoToolbox). Everything else is streamed as it is."
-        case "v4l2": return "Lower qualities (up to 1080p), codecs Apple devices can't play and burned-in subtitles are made by the board's video encoder. 4K and 10-bit HEVC titles are too much for it: they play as they are. Everything else is streamed as it is."
+        case "nvenc", "qsv", "vaapi": return "Lower qualities, codecs Apple devices can't play and HDR for SDR screens are made on the GPU. Everything else is streamed as it is."
+        case "videotoolbox": return "Lower qualities, codecs Apple devices can't play and HDR for SDR screens are made by the Mac's media engine (VideoToolbox). Everything else is streamed as it is."
+        case "v4l2": return "Lower qualities (up to 1080p) and codecs Apple devices can't play are made by the board's video encoder. 4K and 10-bit HEVC titles are too much for it: they play as they are. Everything else is streamed as it is."
         case "cpu": return "No GPU is passed to the server: transcodes run on the CPU (up to 1080p), which can be slow on a small machine. Everything Apple devices play directly is streamed as it is."
         case "off": return "Transcoding is switched off: titles stream as they are (audio is still converted when needed)."
         case "unavailable": return s.transcode == nil
             ? "Transcoding needs an NVIDIA GPU passed to the server (NVIDIA Container Toolkit). Without one, titles stream as they are: what Apple devices can play directly plays fine."
             : "Nothing on the server can transcode: titles stream as they are; what Apple devices can play directly plays fine."
-        default: return "Lower qualities, codecs Apple devices can't play, HDR for SDR screens and burned-in subtitles are made by the server's video hardware. Everything else is streamed as it is."
+        default: return "Lower qualities, codecs Apple devices can't play and HDR for SDR screens are made by the server's video hardware. Everything else is streamed as it is."
         }
     }
 
@@ -1280,7 +1280,7 @@ struct ActivityAdminView: View {
     private func sessionRow(_ s: MoonriseClient.Activity.Session) -> some View {
         let title = s.seriesTitle.map { "\($0) · \(s.episodeLabel ?? "")" } ?? s.title ?? "A title"
         let how: String = switch s.method {
-        case "transcode": "Transcoding" + (s.variant.map { " · \($0)" } ?? "") + (s.tonemap == true ? " · HDR→SDR" : "") + (s.burn != nil ? " · subtitles burned in" : "")
+        case "transcode": "Transcoding" + (s.variant.map { " · \($0)" } ?? "") + (s.tonemap == true ? " · HDR→SDR" : "")
         case "convert": "Direct · audio converted"
         default: "Direct"
         }

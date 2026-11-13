@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// An embedded subtitle track of a Moonrise server title, shown before the server has extracted all
@@ -6,6 +7,9 @@ import Foundation
 /// drops a request for elsewhere). Cues are merged as they come, so nothing already shown goes
 /// away. Once a window says the whole track is ready, the `.srt` is fetched once and replaces the
 /// windows (seeking anywhere is then free).
+///
+/// A picture track (PGS, DVD, DVB) comes the same way, as images (`onPictures`); it is only
+/// ever served in windows.
 @MainActor
 final class SubtitleWindowLoader {
     static let span = 30.0
@@ -17,16 +21,20 @@ final class SubtitleWindowLoader {
     private let itemId: String
     private let index: Int
     private let headers: [String: String]
-    /// The whole track (`.srt`).
-    private let fullURL: URL
+    /// The whole track (`.srt`); none for a picture track.
+    private let fullURL: URL?
     private let fetchFull: (URL) async throws -> Data
     /// The cues known so far (sorted), whenever they change.
     private let onCues: ([SubtitleCue]) -> Void
+    /// A picture track's cues known so far, and their canvas, whenever they change.
+    private let onPictures: ((CGSize, [PictureCue]) -> Void)?
     /// The server doesn't serve windows (any more): load the whole track instead.
     private let onFallback: () -> Void
     private let log: (String) -> Void
 
     private var cues = Set<SubtitleCue>()
+    private var pictures = Set<PictureCue>()
+    private var canvas = CGSize.zero
     private var loaded = Set<Int>()
     /// The last window there is (the server said "past the end" for the next).
     private var last: Int?
@@ -39,8 +47,9 @@ final class SubtitleWindowLoader {
     private let started = Date()
     private var first = true
 
-    init(base: URL, itemId: String, index: Int, headers: [String: String], fullURL: URL,
+    init(base: URL, itemId: String, index: Int, headers: [String: String], fullURL: URL?,
          fetchFull: @escaping (URL) async throws -> Data, onCues: @escaping ([SubtitleCue]) -> Void,
+         onPictures: ((CGSize, [PictureCue]) -> Void)? = nil,
          onFallback: @escaping () -> Void, log: @escaping (String) -> Void) {
         self.base = base
         self.itemId = itemId
@@ -49,6 +58,7 @@ final class SubtitleWindowLoader {
         self.fullURL = fullURL
         self.fetchFull = fetchFull
         self.onCues = onCues
+        self.onPictures = onPictures
         self.onFallback = onFallback
         self.log = log
     }
@@ -124,6 +134,18 @@ final class SubtitleWindowLoader {
 
     private func received(_ w: MoonriseServer.SubtitleWindow, ms: Double) {
         loaded.insert(w.window)
+        if let onPictures {
+            let before = pictures.count
+            for c in w.cues {
+                if let p = PictureCue(c) { pictures.insert(p) }
+            }
+            if let c = w.canvas { canvas = CGSize(width: c.width, height: c.height) }
+            log(String(format: "picture window %d: %d cues (%@) in %.0f ms%@", w.window, w.cues.count, w.source ?? "?", ms,
+                       first ? String(format: ", %.0f ms after the track was chosen", Date().timeIntervalSince(started) * 1000) : ""))
+            first = false
+            if pictures.count != before || before == 0 { onPictures(canvas, Array(pictures)) }
+            return
+        }
         let before = cues.count
         for c in w.cues {
             cues.insert(SubtitleCue(start: c.start, end: c.end, text: SubtitleParser.stripTags(c.text).trimmingCharacters(in: .whitespacesAndNewlines)))
@@ -138,12 +160,12 @@ final class SubtitleWindowLoader {
 
     /// The whole track is ready on the server: one fetch, then no more windows.
     private func loadFull() {
-        guard !complete else { return }
+        guard !complete, let fullURL else { return }
         complete = true
         fullTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let data = try await self.fetchFull(self.fullURL)
+                let data = try await self.fetchFull(fullURL)
                 guard !Task.isCancelled, !self.stopped else { return }
                 let doc = SubtitleParser.parse(data)
                 self.log("subtitle track complete: \(doc.cues.count) cues")

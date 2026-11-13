@@ -14,7 +14,7 @@ import Testing
     }
 
     private func bitmap(_ id: String, _ title: String, _ language: String?) -> SubtitleOption {
-        SubtitleOption(id: id, title: title, language: language, kind: .burnIn(index: id.hashValue & 0xffff))
+        SubtitleOption(id: id, title: title, language: language, kind: .pictures(index: id.hashValue & 0xffff))
     }
 
     private func pick(_ options: [SubtitleOption], on: Bool = true, _ language: String = "en", sdh: Bool = false,
@@ -57,7 +57,7 @@ import Testing
         #expect(TrackRules.subtitleLanguage(text("a", "Film.srt", nil)) == nil)
     }
 
-    /// Subtitles on: the preferred language's, the kind picked last first, text over bitmap,
+    /// Subtitles on: the preferred language's, the kind picked last first, text before pictures,
     /// never a forced track.
     @Test func autoSelectWhenOn() {
         let forced = text("forced", "English Forced", "eng")
@@ -68,15 +68,15 @@ import Testing
         #expect(pick([other, forced, plain, sdh]) == "plain")
         #expect(pick([other, forced, sdh, plain], sdh: true) == "sdh")
         #expect(pick([other, sdh], sdh: false) == "sdh", "the other kind when that's all there is")
-        #expect(pick([pgs, plain]) == "plain", "text before a bitmap track")
-        #expect(pick([pgs, other]) == "pgs", "a bitmap track when there's no text one")
+        #expect(pick([pgs, plain]) == "plain", "text before a picture track")
+        #expect(pick([pgs, other]) == "pgs", "a picture track when there's no text one")
         #expect(pick([forced, other], audio: "ru") == nil, "never a forced track as the full subtitles")
         #expect(pick([text("file", "Film.en.srt", nil)], "eng") == "file", "by file name; the setting in any form")
     }
 
     /// Off, or none in the preferred language: forced subtitles for foreign dialogue, in the
-    /// audio's language; any forced track when the audio's language isn't known; never a
-    /// burned-in one.
+    /// audio's language; any forced track when the audio's language isn't known; a picture one
+    /// too (Blu-ray forced subtitles are pictures).
     @Test func forcedSubtitlesAutoSelect() {
         let forcedEn = text("forced-en", "English Forced", "eng")
         let forcedRu = text("forced-ru", "Russian Forced", "rus")
@@ -85,7 +85,7 @@ import Testing
         #expect(pick([plainEn, forcedRu, forcedEn], on: false, audio: "ru") == "forced-ru")
         #expect(pick([plainEn, forcedEn], on: false, audio: "ja") == nil, "no forced track in the audio's language: off")
         #expect(pick([plainEn, forcedRu, forcedEn], on: false, audio: nil) == "forced-ru", "audio language unknown: the first forced")
-        #expect(pick([bitmap("pgs-forced", "English Forced", "eng")], on: false, audio: "en") == nil, "never a burned-in forced track")
+        #expect(pick([bitmap("pgs-forced", "English Forced", "eng")], on: false, audio: "en") == "pgs-forced", "a forced picture track")
         #expect(pick([plainEn], on: false, audio: "en") == nil, "off and nothing forced: nothing")
         #expect(pick([plainEn, forcedRu], on: true, "de", audio: "ru") == "forced-ru", "on, but not in the preferred language")
     }
@@ -153,7 +153,7 @@ import Testing
     }
 
     /// The next episode: the same language and kind (forced or full), SDH and title first, text
-    /// over bitmap; Off stays off but forced subtitles may still come on.
+    /// before pictures; Off stays off but forced subtitles may still come on.
     @Test func nextEpisodeSubtitles() {
         let next = [bitmap("pgs", "English", "eng"), server(7, "English · Forced", "eng"), server(8, "English", "eng"),
                     server(9, "English · SDH", "eng"), server(10, "Russian", "rus")]
@@ -165,7 +165,7 @@ import Testing
         #expect(remembered(next, memory(same: false, subtitle: Pick(language: "ja"))) == "usual", "not there")
         #expect(remembered(next, memory(same: false, off: true)) == "usual-off")
         #expect(remembered([bitmap("pgs", "English", "eng")], memory(same: false, subtitle: Pick(language: "en"))) == "pgs",
-                "a bitmap track when there's no text one")
+                "a picture track when there's no text one")
     }
 
     /// What reports send: `subtitle: null` is Off; a download's indexes stay on the device.
@@ -179,31 +179,20 @@ import Testing
         #expect(TrackRules.subtitleDetail(server(1, "English", "eng")) == nil)
     }
 
-    /// A bitmap track's menu row says nothing about burning in, it is still burned in, and
-    /// one of the same language and title as a text track still reads differently.
-    @Test @MainActor func bitmapTracksAreNamedLikeTextOnes() throws {
+    /// A picture track's menu row reads like a text one's, it is drawn from the server's images,
+    /// and one of the same language and title as a text track still reads differently.
+    @Test @MainActor func pictureTracksAreNamedLikeTextOnes() throws {
         let track = TrackInfo(kind: .subtitle, index: 4, language: "eng", title: "SDH", isText: false)
         let bitmap = try #require(TrackRules.fileSubtitleOption(track) { nil })
         #expect(bitmap.title == track.label)
-        #expect(!bitmap.title.contains("burned in"))
-        #expect(bitmap.kind == .burnIn(index: 4))
-        #expect(TrackRules.isBurnIn(bitmap))
+        #expect(bitmap.kind == .pictures(index: 4))
+        #expect(TrackRules.isPicture(bitmap))
 
         let url = try #require(URL(string: "https://example.invalid/4.srt"))
         let textTrack = TrackInfo(kind: .subtitle, index: 5, language: "eng", title: "SDH", isText: true)
         let text = try #require(TrackRules.fileSubtitleOption(textTrack) { url })
         #expect(TrackRules.fileSubtitleOption(textTrack) { nil } == nil, "a text track with no address")
         #expect(PlayerModel.distinctDetails([bitmap, text].map { ($0.name, $0.detail) }) == ["SDH · #1", "SDH · #2"])
-    }
-
-    /// A choice remembered while the menus said " (burned in)" still finds its track.
-    @Test func aChoiceFromBeforeTheLabelWentStillMatches() {
-        let next = [server(8, "English", "eng"), bitmap("pgs", "English · Signs", "eng")]
-        #expect(remembered(next, memory(same: false, subtitle: Pick(language: "en", title: "Signs (burned in)"))) == "pgs")
-        #expect(remembered(next, memory(same: false, subtitle: Pick(language: "en", title: "English · Signs (burned in)"))) == "pgs")
-        #expect(TrackRules.rememberedSubtitleTitle("Signs (burned in)") == "Signs")
-        #expect(TrackRules.rememberedSubtitleTitle(" (burned in)") == nil)
-        #expect(TrackRules.rememberedSubtitleTitle(nil) == nil)
     }
 
     /// A download keeps its tracks on the device until it is deleted.

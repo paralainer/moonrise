@@ -293,6 +293,10 @@ struct PlayerScreen: View {
             Color.black
             VideoSurface(model: model, fullBleed: !compact)
 
+            PictureSubtitleOverlay(cues: model.overlayPictures, canvas: model.pictureCanvas, videoSize: model.videoSize,
+                                   fill: model.fill, controls: controlsShown ? controlsLayout : nil)
+                // Over the whole video, as VideoSurface lays it out (past the safe area).
+                .ignoresSafeArea(edges: compact ? [] : .all)
             SubtitleOverlay(text: model.overlayText, height: size.height,
                             controls: controlsShown ? controlsLayout : nil,
                             liftedBottom: fullScreenControls && !compact ? max(size.height * 0.2, 175) : size.height * 0.2)

@@ -8,7 +8,7 @@ import Testing
 @Suite struct TrackDetailTests {
     private func subtitle(_ language: String?, _ title: String?, forced: Bool? = nil, index: Int = 3) -> SubtitleOption {
         let t = TrackInfo(kind: .subtitle, index: index, language: language, title: title, isForced: forced)
-        return SubtitleOption(id: "t:\(index)", title: t.label, language: language, kind: .burnIn(index: index), trackIndex: index)
+        return SubtitleOption(id: "t:\(index)", title: t.label, language: language, kind: .pictures(index: index), trackIndex: index)
     }
 
     private func audio(_ language: String?, _ title: String?, codec: String? = "ac3", channels: Int? = 6,

@@ -43,6 +43,10 @@ extension PlayerModel {
     /// to that late; when a cue edge falls before the next tick, refresh exactly at the edge.
     func updateSubtitle(at t: Double) {
         subtitleEdgeTask?.cancel()
+        if pictureDoc != nil {
+            updatePictures(at: t)
+            return
+        }
         guard let doc = subtitleDoc else { return }
         let local = t - subtitleDelay
         let text = doc.text(at: local)
@@ -60,6 +64,66 @@ extension PlayerModel {
             guard !Task.isCancelled, let self, let now = self.engine?.currentTime else { return }
             self.updateSubtitle(at: now)
         }
+    }
+
+    /// The picture cues for `t` (the subtitle delay applies as to text), refreshed exactly at
+    /// the next edge when it falls before the next tick.
+    private func updatePictures(at t: Double) {
+        guard let doc = pictureDoc else { return }
+        if let s = engine?.presentationSize, s != videoSize { videoSize = s }
+        let local = t - subtitleDelay
+        let showing = doc.showing(at: local)
+        if showing != pictureCues {
+            pictureCues = showing
+            #if DEBUG
+            if DebugSeams.launch.logOverlay {
+                fputs(String(format: "MoonriseOverlay %.3f pictures %@\n", t,
+                             showing.map { String(format: "%.0f,%.0f %.0fx%.0f%@", $0.rect.minX, $0.rect.minY, $0.rect.width, $0.rect.height,
+                                                    $0.image == nil ? " (no image)" : "") }
+                                 .joined(separator: " / ")), stderr)
+            }
+            #endif
+        }
+        guard isPlaying, let edge = doc.nextEdge(after: local), edge - local < 0.3 else { return }
+        subtitleEdgeTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(edge - local + 0.005))
+            guard !Task.isCancelled, let self, let now = self.engine?.currentTime else { return }
+            self.updateSubtitle(at: now)
+        }
+    }
+
+    /// A picture track of the server's (`SubtitleOption.Kind.pictures`): its images, fetched window
+    /// by window around the playhead, drawn over the video by `PictureSubtitleOverlay`.
+    func startPictureWindows(_ option: SubtitleOption, index n: Int) {
+        guard local == nil, let client, let base = client.moonriseBaseURL else {
+            notice = "These subtitles can't be shown here"
+            return
+        }
+        let id = option.id
+        pictureDoc = PictureDocument(canvas: .zero, cues: [])
+        let loader = SubtitleWindowLoader(
+            base: base, itemId: mediaId, index: n, headers: client.headers, fullURL: nil,
+            fetchFull: { _ in throw CancellationError() },
+            onCues: { _ in },
+            onPictures: { [weak self] canvas, cues in
+                guard let self, self.selectedSubtitleId == id else { return }
+                self.pictureDoc = PictureDocument(canvas: canvas, cues: cues)
+                self.updateSubtitle(at: self.currentTime)
+            },
+            onFallback: { [weak self] in
+                guard let self, self.selectedSubtitleId == id else { return }
+                self.windowLoader = nil
+                self.notice = "This server can't send these subtitles"
+            },
+            log: { [weak self] line in
+                #if DEBUG
+                self?.mark(line)
+                #else
+                _ = (self, line)
+                #endif
+            })
+        windowLoader = loader
+        loader.advance(to: max(currentTime, seekTarget ?? 0) - subtitleDelay)
     }
 
     func loadWholeSubtitle(_ url: URL) async {

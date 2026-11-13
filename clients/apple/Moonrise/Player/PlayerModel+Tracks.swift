@@ -87,22 +87,17 @@ extension PlayerModel {
         timingWatch?.cancel()
         subtitleDoc = nil
         subtitleText = nil
+        pictureDoc = nil
+        pictureCues = []
         windowLoader?.stop()
         windowLoader = nil
         engine?.selectSubtitleTrack(nil)
 
-        let previousBurnIn = burnInIndex
-        burnInIndex = nil
-
-        guard let option else {
-            if previousBurnIn != nil { reloadKeepingPosition() }
-            return
-        }
+        guard let option else { return }
         switch option.kind {
-        case let .burnIn(index):
-            burnInIndex = index
-            reloadKeepingPosition()
-            return
+        case let .pictures(index):
+            // Images from the server, window by window around the playhead; the stream plays on.
+            startPictureWindows(option, index: index)
         case let .engine(id):
             engine?.selectSubtitleTrack(id)
         case let .external(url):
@@ -117,7 +112,6 @@ extension PlayerModel {
                 if pending { self.watchTiming(option, url: url) }
             }
         }
-        if previousBurnIn != nil { reloadKeepingPosition() }
     }
 
     /// The rendition of the Moonrise server's stream for the selected audio track.

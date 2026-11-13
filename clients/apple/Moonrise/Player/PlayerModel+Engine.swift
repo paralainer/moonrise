@@ -72,7 +72,7 @@ extension PlayerModel {
                     av.resumeWhenBuffered()
                 }
             }
-            // A restarted stream (quality, burn-in, AirPlay's own fallbacks) keeps AirPlay's state.
+            // A restarted stream (quality, AirPlay's own fallbacks) keeps AirPlay's state.
             av.externalActive = isExternalPlayback
         }
         if nowPlaying == nil { nowPlaying = NowPlayingController(model: self) }
@@ -88,14 +88,12 @@ extension PlayerModel {
         // Debug seams, a few seconds after the first start, as the menus would:
         // MOONRISE_AUTOPLAY_AUDIO=<track index> switches the audio track,
         // MOONRISE_AUTOPLAY_QUALITY=<bits/s> picks that quality preset (0: Original),
-        // MOONRISE_AUTOPLAY_BURN=<track index> picks that bitmap subtitle (burned in),
         // MOONRISE_AUTOPLAY_SEEK=<seconds> then seeks there (once the restart, if any, is playing).
         if case .ready = s, !debugAudioApplied {
             debugAudioApplied = true
             let seams = DebugSeams.launch
             let audio = seams.autoplayAudio
             let q = seams.autoplayQuality
-            let burn = seams.autoplayBurn
             let seekTo = seams.autoplaySeek
             // MOONRISE_AUTOPLAY_SUB=<option id> ("t:4", "moonrise:10000", "none") picks that subtitle as the
             // menu does (MOONRISE_AUTOPLAY_AUDIO too: they set the preferences);
@@ -144,7 +142,7 @@ extension PlayerModel {
                     }
                 }
             }
-            if audio != nil || q != nil || burn != nil || seekTo != nil {
+            if audio != nil || q != nil || seekTo != nil {
                 Task { [weak self] in
                     try? await Task.sleep(for: .seconds(4))
                     guard let self else { return }
@@ -153,12 +151,8 @@ extension PlayerModel {
                         self.mark("select quality \(preset.label)")
                         self.setQuality(preset)
                     }
-                    if let burn, let o = self.subtitleOptions.first(where: { $0.id == "t:\(burn)" }) {
-                        self.mark("select subtitle \(o.title)")
-                        self.selectSubtitle(o)
-                    }
                     if let seekTo {
-                        try? await Task.sleep(for: .seconds(q != nil || burn != nil ? 10 : 4))
+                        try? await Task.sleep(for: .seconds(q != nil ? 10 : 4))
                         self.mark("seek to \(Int(seekTo))")
                         self.debugSeekTarget = seekTo
                         self.seek(to: seekTo)
@@ -247,6 +241,14 @@ extension PlayerModel {
         if local != nil, Date().timeIntervalSince(lastLocalLog) >= 5 {
             lastLocalLog = Date()
             mark(String(format: "local at %.1f %@", t, isPlaying ? (isBuffering ? "buffering" : "playing") : "paused"))
+        }
+        #endif
+        #if DEBUG
+        // MOONRISE_AUTOPLAY_PAUSE=<seconds>: pauses once there (screenshots of what shows then).
+        if !debugPaused, let p = DebugSeams.launch.autoplayPause, t >= p, isPlaying {
+            debugPaused = true
+            mark(String(format: "pause at %.1f", t))
+            togglePlay()
         }
         #endif
         updateSubtitle(at: t)

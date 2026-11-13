@@ -422,7 +422,6 @@ extension MoonriseClient {
             let method: String
             let variant: String?
             let tonemap: Bool?
-            let burn: Int?
             let duration: Double?
             let position: Double?
             let idleSecs: Int

@@ -10,7 +10,7 @@ extension PlayerModel {
     // before the stream has ever been ready). Ordinary buffering (a seek, a slow segment) passes
     // the check: the session answers. Recovery waits (backoff) until ConnectionRouter reaches the
     // server on some route, opens a new session at the same position with the same audio,
-    // subtitle, burn-in and quality, and plays it in the same AVPlayer (PiP and AirPlay carry on),
+    // subtitle and quality, and plays it in the same AVPlayer (PiP and AirPlay carry on),
     // paused or playing as before. It gives up after a minute without the server, or when the
     // stream keeps failing, and offers Retry.
     //

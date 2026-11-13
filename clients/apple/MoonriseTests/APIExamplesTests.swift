@@ -58,6 +58,7 @@ struct APIExamplesTests {
         // Subtitles
         "subtitles.json": decodes(S.SubtitleList.self, snake) { #expect(!$0.subtitles.isEmpty) },
         "subtitle-cues.json": decodes(S.SubtitleWindow.self, snake),
+        "subtitle-picture-cues.json": decodes(S.SubtitleWindow.self, snake),
         "subtitle-timing.json": decodes(S.SubtitleTiming.self, snake),
         "subtitle-search.json": decodes(S.SearchAnswer.self, snake),
         "subtitle-track.json": decodes(S.SubtitleTrack.self, snake),

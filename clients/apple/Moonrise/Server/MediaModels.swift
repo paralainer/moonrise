@@ -275,7 +275,7 @@ struct MediaVersion: Codable, Hashable, Identifiable {
 }
 
 /// One stream of a file. `index` is the server's track index (sidecar files first, then
-/// the file's streams): the player's track menus, burn-in and subtitle URLs use it.
+/// the file's streams): the player's track menus and subtitle URLs use it.
 struct TrackInfo: Codable, Hashable {
     enum Kind: String, Codable { case video, audio, subtitle, other }
 
@@ -289,7 +289,8 @@ struct TrackInfo: Codable, Hashable {
     var isDefault: Bool?
     var isForced: Bool?
     var isExternal: Bool?
-    /// Subtitles: text (drawn by the app) rather than bitmaps (burned in).
+    /// Subtitles: text rather than pictures (PGS, DVD, DVB: images the server sends in windows).
+    /// The app draws both.
     var isText: Bool?
     var width: Int?
     var height: Int?
