@@ -78,7 +78,7 @@ uptime. The server then fell back to the CPU, as it should.
 
 ## Tested
 
-- NVIDIA: the production path (RTX 3050), unchanged command lines (byte-for-byte, checked against
+- NVIDIA: real runs on an RTX 3050, unchanged command lines (byte-for-byte, checked against
   the previous version for a matrix of sources).
 - CPU: real runs in a container without a GPU (DivX AVI, HDR HEVC tone-mapped, 1080p H.264 to
   720p).

@@ -4,7 +4,7 @@ Status: accepted
 
 ## Context
 
-Moonrise needed a Windows client close to the Mac app in look and feel. The owner chose native
+Moonrise needed a Windows client close to the Mac app in look and feel. The maintainers chose native
 C# with WinUI 3 on .NET (no Java) and libmpv for playback. libmpv is a native library that has
 always drawn into a window of its own: a child HWND cannot be covered by XAML in the same window
 (the airspace problem), and the controls must be Moonrise's, drawn over the video.
