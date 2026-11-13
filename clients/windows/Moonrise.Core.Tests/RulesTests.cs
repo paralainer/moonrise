@@ -66,7 +66,7 @@ public class RulesTests
     [Fact]
     public void RememberedSubtitle()
     {
-        var options = new[] { new SubtitleCandidate("s1", "English", "eng", 5, false), new SubtitleCandidate("s2", "Russian", "ru", 6, false) };
+        var options = new[] { new SubtitleCandidate("s1", "English", "eng", 5), new SubtitleCandidate("s2", "Russian", "ru", 6) };
         Assert.IsType<SubtitleMemory.Usual>(TrackRules.RememberedSubtitle(options, null));
         Assert.IsType<SubtitleMemory.OffHere>(TrackRules.RememberedSubtitle(options, new TrackMemory { SameFile = true, SubtitleOff = true }));
         Assert.IsType<SubtitleMemory.UsualOff>(TrackRules.RememberedSubtitle(options, new TrackMemory { SubtitleOff = true }));
@@ -77,10 +77,21 @@ public class RulesTests
     [Fact]
     public void ForcedSubtitleFollowsTheAudioLanguage()
     {
-        var options = new[] { new SubtitleCandidate("en", "English", "en", 5, false), new SubtitleCandidate("f", "English · Forced", "en", 6, false) };
+        var options = new[] { new SubtitleCandidate("en", "English", "en", 5), new SubtitleCandidate("f", "English · Forced", "en", 6) };
         Assert.Equal("f", TrackRules.UsualSubtitle(options, on: false, "ru", false, "en")!.Id);
         Assert.Null(TrackRules.UsualSubtitle(options, on: false, "ru", false, "ja"));
         Assert.Equal("en", TrackRules.UsualSubtitle(options, on: true, "en", false, "ja")!.Id);
+    }
+
+    [Fact]
+    public void PictureSubtitlesArePickedLikeTextOnes()
+    {
+        // The app draws picture tracks (PGS, DVD, DVB) as it draws text ones: the file's order decides.
+        var options = new[] { new SubtitleCandidate("pgs", "English - PGSSUB", "en", 2), new SubtitleCandidate("srt", "English - SUBRIP", "en", 3), new SubtitleCandidate("dvd", "English · Forced - DVDSUB", "en", 4) };
+        Assert.Equal("pgs", TrackRules.UsualSubtitle(options, on: true, "en", false, "ja")!.Id);
+        Assert.Equal("dvd", TrackRules.UsualSubtitle(options, on: false, "en", false, "en")!.Id);
+        var remembered = Assert.IsType<SubtitleMemory.Use>(TrackRules.RememberedSubtitle(options, new TrackMemory { Subtitle = new TrackPick { Language = "en", Title = "English" } }));
+        Assert.Equal("pgs", remembered.Id);
     }
 
     [Fact]

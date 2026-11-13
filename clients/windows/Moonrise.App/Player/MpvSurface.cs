@@ -96,6 +96,9 @@ internal sealed unsafe class MpvSurface : IDisposable
     public void SetAudioTrack(int id) => _mpv.TrySet("aid", id.ToString());
     public void SetSubtitleTrack(int? id) => _mpv.TrySet("sid", id?.ToString() ?? "no");
     public void SetFill(bool fill) => _mpv.TrySet("panscan", fill ? "1.0" : "0.0");
+    /// <summary>The video's size as shown (its pixel aspect applied: a DVD's 720 × 480 is 853 × 480), when known.</summary>
+    public (double Width, double Height)? DisplaySize =>
+        _mpv.GetInt64("dwidth") is > 0 and var w && _mpv.GetInt64("dheight") is > 0 and var h ? (w, h) : null;
     public double? Position => double.TryParse(_mpv.GetString("time-pos"), NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : null;
 
     private string SizeString()

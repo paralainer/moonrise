@@ -6,9 +6,37 @@ namespace Moonrise.Core;
 
 // Subtitles as the other apps show them (clients/apple/Moonrise/Subtitles/, clients/android/core/
 // .../Subtitles.kt): the server's text tracks are fetched and drawn by the app, so their size,
-// background and delay can change; bitmap tracks are burned in by the server.
+// background and delay can change. Picture tracks (PGS, DVD, DVB) come the same way, in windows, as
+// images with their place on the track's canvas, and are drawn over the video where they were made
+// to show (SubtitlePictures).
 
-public sealed record SubtitleCue(double Start, double End, string Text);
+/// <summary>A cue: text, or a picture (<see cref="Image"/>, with empty text).</summary>
+public sealed record SubtitleCue(double Start, double End, string Text)
+{
+    public CueImage? Image { get; init; }
+}
+
+/// <summary>
+/// A picture cue's image: where it sits on the track's canvas (the video frame it was made for,
+/// <see cref="CanvasWidth"/> × <see cref="CanvasHeight"/>, from the window), and the PNG (base64).
+/// </summary>
+public sealed record CueImage
+{
+    public int X { get; init; }
+    public int Y { get; init; }
+    public int Width { get; init; }
+    public int Height { get; init; }
+    public string Png { get; init; } = "";
+    public int CanvasWidth { get; init; }
+    public int CanvasHeight { get; init; }
+}
+
+/// <summary>The frame a picture track's cues are placed on (a window's <c>canvas</c>).</summary>
+public sealed record PictureCanvas
+{
+    public int Width { get; init; }
+    public int Height { get; init; }
+}
 
 /// <summary>A parsed track: the cues sorted by start.</summary>
 public sealed class SubtitleDocument(IReadOnlyList<SubtitleCue> cues)
@@ -28,7 +56,7 @@ public sealed class SubtitleDocument(IReadOnlyList<SubtitleCue> cues)
         // Overlapping cues: walk back a little to collect everything active.
         var lines = new List<string>();
         for (var i = found; i >= 0 && i >= found - 4; i--)
-            if (Cues[i].Start <= t && t < Cues[i].End) lines.Insert(0, Cues[i].Text);
+            if (Cues[i].Start <= t && t < Cues[i].End && Cues[i].Image == null) lines.Insert(0, Cues[i].Text);
         return lines.Count == 0 ? null : string.Join("\n", lines);
     }
 
@@ -159,7 +187,51 @@ public sealed record SubtitleWindow
     public double To { get; init; }
     public bool Complete { get; init; }
     public string? Source { get; init; }
+    /// <summary>A picture track's canvas (null for text).</summary>
+    public PictureCanvas? Canvas { get; init; }
     public IReadOnlyList<SubtitleCue> Cues { get; init; } = [];
+}
+
+/// <summary>Picture subtitles: which show when, and where on the screen (Mac: SubtitleOverlay).</summary>
+public static class SubtitlePictures
+{
+    /// <summary>The picture cues showing at <paramref name="t"/>, in their order (a few overlap: two lines in two places).</summary>
+    public static IReadOnlyList<SubtitleCue> At(IReadOnlyList<SubtitleCue> cues, double t) =>
+        cues.Where(c => c.Image != null && c.Start <= t && t < c.End).ToList();
+
+    /// <summary>
+    /// Where the video shows in an area of <paramref name="areaWidth"/> × <paramref name="areaHeight"/>:
+    /// fitted and centred (<paramref name="fill"/>: filling it, cut at the sides). Null without a size.
+    /// </summary>
+    public static (double X, double Y, double Width, double Height)? VideoRect(double areaWidth, double areaHeight, double videoWidth, double videoHeight, bool fill)
+    {
+        if (areaWidth <= 0 || areaHeight <= 0 || videoWidth <= 0 || videoHeight <= 0) return null;
+        var scale = fill ? Math.Max(areaWidth / videoWidth, areaHeight / videoHeight) : Math.Min(areaWidth / videoWidth, areaHeight / videoHeight);
+        var (w, h) = (videoWidth * scale, videoHeight * scale);
+        return ((areaWidth - w) / 2, (areaHeight - h) / 2, w, h);
+    }
+
+    /// <summary>
+    /// A picture's place on the screen: its canvas stretched over the video's rectangle, across and
+    /// down each by its own scale (a DVD's 720 × 480 canvas on a 16:9 picture). Null without a canvas.
+    /// </summary>
+    public static (double X, double Y, double Width, double Height)? Place(CueImage image, (double X, double Y, double Width, double Height) video)
+    {
+        if (image.CanvasWidth <= 0 || image.CanvasHeight <= 0) return null;
+        var sx = video.Width / image.CanvasWidth;
+        var sy = video.Height / image.CanvasHeight;
+        return (video.X + image.X * sx, video.Y + image.Y * sy, image.Width * sx, image.Height * sy);
+    }
+
+    /// <summary>
+    /// How far up a picture in the lower half moves while the controls show, so it stays clear of
+    /// the scrubber as text does (<see cref="SubtitleLayout.BottomPadding"/>): 0 when it already is.
+    /// </summary>
+    public static double Lift(double top, double height, double areaHeight, bool controlsShown, double bandTop)
+    {
+        if (!controlsShown || bandTop <= 0 || top + height / 2 < areaHeight / 2) return 0;
+        return Math.Max(0, top + height - (bandTop - 8));
+    }
 }
 
 /// <summary>The subtitle Delay menu (Mac: TrackMenus.delay).</summary>
@@ -328,7 +400,14 @@ public sealed class SubtitleWindowLoader
     {
         _loaded.Add(w.Window);
         var before = _cues.Count;
-        foreach (var c in w.Cues) _cues.Add(c with { Text = SubtitleParser.StripTags(c.Text).Trim() });
+        foreach (var c in w.Cues)
+        {
+            if (c.Image != null)
+                // A picture: placed on the window's canvas. The same cue from the next window is the same record.
+                _cues.Add(c with { Text = "", Image = c.Image with { CanvasWidth = w.Canvas?.Width ?? 0, CanvasHeight = w.Canvas?.Height ?? 0 } });
+            else
+                _cues.Add(c with { Text = SubtitleParser.StripTags(c.Text).Trim() });
+        }
         _log($"subtitle window {w.Window}: {w.Cues.Count} cues ({w.Source ?? "?"}){(w.Complete ? ", track complete" : "")}");
         if (_cues.Count != before) _onCues(_cues.OrderBy(c => c.Start).ThenBy(c => c.End).ToList());
         if (w.Complete) _ = LoadFull();

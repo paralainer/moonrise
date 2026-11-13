@@ -136,7 +136,7 @@ public class PlayerParityTests
         AudioCandidate[] audio = [new(1, "en", true, "English"), new(2, "ru", false, "Russian")];
         Assert.Equal(2, TrackRules.PreferredAudio(audio, new PlayerSettings { PreferredAudioLanguage = "ru" }.PreferredAudioLanguage));
         Assert.Null(TrackRules.PreferredAudio(audio, new PlayerSettings().PreferredAudioLanguage));
-        SubtitleCandidate[] subs = [new("s3", "English", "en", 3, false), new("s4", "Russian", "ru", 4, false)];
+        SubtitleCandidate[] subs = [new("s3", "English", "en", 3), new("s4", "Russian", "ru", 4)];
         var on = new PlayerSettings { AutoSelectSubtitles = true, PreferredSubtitleLanguage = "ru" };
         Assert.Equal("s4", TrackRules.UsualSubtitle(subs, on.AutoSelectSubtitles, on.PreferredSubtitleLanguage, on.PreferSdhSubtitles, "en")?.Id);
         var off = new PlayerSettings();
@@ -226,6 +226,87 @@ public class PlayerParityTests
         Assert.Equal(28, SubtitleLayout.BottomPadding(300, false, 250));
         Assert.Equal(108, SubtitleLayout.BottomPadding(1000, true, 900));
         Assert.Equal(60, SubtitleLayout.BottomPadding(1000, true, 0));
+    }
+
+    // ---------------------------------------------------------------- picture subtitles
+
+    /// <summary>A picture track's window as the server answers it (a PGS track, 1920 × 1080).</summary>
+    private const string PictureWindowJson = """
+        {"index":2,"window":0,"from":0.0,"to":30.0,"span":30.0,"complete":false,"source":"index",
+         "canvas":{"width":1920,"height":1080},
+         "cues":[{"start":0.023,"end":3.023,"text":"","image":{"x":777,"y":949,"width":354,"height":48,"png":"iVBORw0KGgo="}},
+                 {"start":15.023,"end":18.023,"text":"","image":{"x":777,"y":63,"width":360,"height":48,"png":"iVBORw0KGgp="}}]}
+        """;
+
+    [Fact]
+    public void APictureWindowIsRead()
+    {
+        var w = System.Text.Json.JsonSerializer.Deserialize<SubtitleWindow>(PictureWindowJson, MoonriseApi.Json)!;
+        Assert.False(w.Complete);
+        Assert.Equal(new PictureCanvas { Width = 1920, Height = 1080 }, w.Canvas);
+        Assert.Equal(2, w.Cues.Count);
+        var c = w.Cues[1];
+        Assert.Equal((15.023, 18.023, ""), (c.Start, c.End, c.Text));
+        Assert.Equal((777, 63, 360, 48), (c.Image!.X, c.Image.Y, c.Image.Width, c.Image.Height));
+        Assert.Equal("iVBORw0KGgp=", c.Image.Png);
+    }
+
+    [Fact]
+    public async Task PictureCuesArePlacedOnTheWindowsCanvasAndNotRepeated()
+    {
+        var server = new FakeServer();
+        IReadOnlyList<SubtitleCue> shown = [];
+        var loader = new SubtitleWindowLoader(server.Window, server.FullTrack, c => shown = c, () => { }, (_, _) => Task.CompletedTask);
+        var w = System.Text.Json.JsonSerializer.Deserialize<SubtitleWindow>(PictureWindowJson, MoonriseApi.Json)!;
+        loader.Advance(1);
+        server.Pending[0].SetResult(w);
+        await Until(() => shown.Count == 2);
+        Assert.All(shown, c => Assert.Equal((1920, 1080), (c.Image!.CanvasWidth, c.Image.CanvasHeight)));
+        // The next window has the cue still showing at its start again: one cue, not two.
+        await Until(() => server.Pending.ContainsKey(1));
+        server.Pending[1].SetResult(w with { Window = 1, From = 30, To = 60, Cues = [w.Cues[1], new SubtitleCue(31, 33, "") { Image = w.Cues[0].Image }] });
+        await Until(() => shown.Count == 3);
+        Assert.Equal(0, server.FullAsked);
+        // Pictures aren't text: the text line stays empty, and the picture shows from start to end.
+        var doc = new SubtitleDocument(shown);
+        Assert.Null(doc.TextAt(16));
+        Assert.Equal(63, Assert.Single(SubtitlePictures.At(doc.Cues, 16)).Image!.Y);
+        Assert.Empty(SubtitlePictures.At(doc.Cues, 18.023));
+        Assert.Equal(18.023, doc.NextEdge(16));
+    }
+
+    [Fact]
+    public void PicturesSitOnTheVideoWhereTheTrackPutsThem()
+    {
+        // 1080p in a 2000 × 1000 window: pillarboxed, 1777.8 wide from x 111.1.
+        var video = SubtitlePictures.VideoRect(2000, 1000, 1920, 1080, fill: false)!.Value;
+        Assert.Equal(1000, video.Height, 3);
+        Assert.Equal(111.111, video.X, 3);
+        var r = SubtitlePictures.Place(new CueImage { X = 960, Y = 540, Width = 192, Height = 108, CanvasWidth = 1920, CanvasHeight = 1080 }, video)!.Value;
+        Assert.Equal((1000.0, 500.0, 177.778, 100.0), (Math.Round(r.X, 3), Math.Round(r.Y, 3), Math.Round(r.Width, 3), Math.Round(r.Height, 3)));
+        // A DVD's 720 × 480 canvas on its 16:9 picture: across and down by their own scales.
+        var dvd = SubtitlePictures.VideoRect(1920, 1080, 853, 480, fill: false)!.Value;
+        var d = SubtitlePictures.Place(new CueImage { X = 360, Y = 400, Width = 72, Height = 40, CanvasWidth = 720, CanvasHeight = 480 }, dvd)!.Value;
+        Assert.Equal(960, d.X + 0, 0);
+        Assert.Equal(900, d.Y, 3);
+        Assert.Equal(192, d.Width, 0);
+        Assert.Equal(90, d.Height, 3);
+        // Filling the window: the picture is cut at the sides, and the pictures follow it.
+        var fill = SubtitlePictures.VideoRect(1000, 1000, 1920, 1080, fill: true)!.Value;
+        Assert.Equal((1000.0, -388.889), (Math.Round(fill.Height, 3), Math.Round(fill.X, 3)));
+        Assert.Null(SubtitlePictures.VideoRect(1000, 1000, 0, 0, false));
+        Assert.Null(SubtitlePictures.Place(new CueImage(), video));
+    }
+
+    [Fact]
+    public void PicturesLowDownStayClearOfTheControls()
+    {
+        // A picture at the bottom moves up above the scrubber while the controls show.
+        Assert.Equal(48, SubtitlePictures.Lift(900, 60, 1000, controlsShown: true, bandTop: 920));
+        Assert.Equal(0, SubtitlePictures.Lift(900, 60, 1000, controlsShown: false, bandTop: 920));
+        Assert.Equal(0, SubtitlePictures.Lift(800, 60, 1000, controlsShown: true, bandTop: 920));
+        // One at the top stays where it is.
+        Assert.Equal(0, SubtitlePictures.Lift(60, 60, 1000, controlsShown: true, bandTop: 50));
     }
 
     // ---------------------------------------------------------------- subtitle windows
