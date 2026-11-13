@@ -16,6 +16,8 @@ else
   # passes its own Mac and folder).
   ASKED=${TSKIT_MAC:-}; ASKED_DIR=${MAC_DIR:-}; . "$HERE/scripts/common.sh"
   TSKIT_MAC=${ASKED:-$TSKIT_MAC}; MAC_DIR=${ASKED_DIR:-$MAC_DIR}
+  # Run from the store pipeline (common.sh: use_release_mac): its Mac and folder, nothing else.
+  [ -z "${MOONRISE_RELEASE_DIR:-}" ] || { TSKIT_MAC=$MAC; MAC_DIR=$MOONRISE_RELEASE_DIR; }
   need "$TSKIT_MAC" "no build Mac: copy scripts/mac.env.example to scripts/mac.env and set MAC (or TSKIT_MAC), or run this on a Mac"
   RUN=(ssh "$TSKIT_MAC" "DEST=\$HOME/$MAC_DIR/clients/apple bash -s")
 fi

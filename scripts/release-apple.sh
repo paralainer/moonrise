@@ -25,7 +25,7 @@
 #                                                review notes and contact, and the build, on the editable versions
 #   scripts/release-apple.sh submit P,P.. --yes  submit for App Review (manual release once approved)
 #
-# The Mac: RELEASE_MAC (user@host; the environment wins over scripts/mac.env), the build Mac that has
+# The Mac: RELEASE_MAC (user@host; the environment wins over scripts/mac.env; scripts/common.sh), the build Mac that has
 # the distribution certificates. MAC and FASTLANE_MAC are never used here: they may name someone's own
 # Mac. Hosts in PERSONAL_MACS (scripts/mac.env, space-separated, user@ optional) are refused.
 #
@@ -34,33 +34,11 @@
 # TailscaleKit there (made the first time with scripts/build-tailscalekit.sh). Store builds come from
 # a clean tree (ALLOW_DIRTY=1 allows uncommitted changes, for trying the pipeline).
 set -euo pipefail
-ASKED=${RELEASE_MAC:-}; . "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 no_dev scripts/release-apple.sh
 DIR="$MOONRISE_ROOT"
-RELEASE_MAC=${ASKED:-${RELEASE_MAC:-}}; PERSONAL_MACS=${PERSONAL_MACS:-}
-# common.sh set MAC from MAC (or to local on a Mac, with ssh/rsync/scp run here): none of that applies.
-unset -f ssh rsync scp 2>/dev/null || true
-MAC=$RELEASE_MAC; FASTLANE_MAC=; TSKIT_MAC=
-MAC_DIR=${RELEASE_DIR:-moonrise-release}
-# release_mac_ok: RELEASE_MAC is set, is user@host, and isn't in PERSONAL_MACS. Prints why not.
-host_of() { local h=${1##*@}; printf '%s\n' "$h" | tr '[:upper:]' '[:lower:]'; }
-release_mac_ok() {
-  local p
-  if [ -z "$RELEASE_MAC" ]; then
-    echo "error: no release Mac: set RELEASE_MAC=user@host (the build Mac with the distribution certificates) in scripts/mac.env or the environment; MAC and FASTLANE_MAC aren't used for releases" >&2
-    return 1
-  fi
-  if [ "$RELEASE_MAC" = local ]; then
-    echo "error: RELEASE_MAC=local isn't supported: name the Mac as user@host (Remote Login on)" >&2
-    return 1
-  fi
-  for p in $PERSONAL_MACS; do
-    if [ "$(host_of "$p")" = "$(host_of "$RELEASE_MAC")" ]; then
-      echo "error: RELEASE_MAC $RELEASE_MAC is listed in PERSONAL_MACS: releases never run on a personal Mac" >&2
-      return 1
-    fi
-  done
-}
+# The Mac is RELEASE_MAC only (common.sh: use_release_mac, release_mac_ok).
+use_release_mac "${RELEASE_DIR:-moonrise-release}"
 REVIEW_ENV=${REVIEW_ENV:-}
 
 usage() { echo "usage: scripts/release-apple.sh ids|profiles|ios|tvos|mac|validate|upload|next-build|app|builds|status|check-metadata|metadata|screenshots|testers|review|submit (scripts/release-apple.sh --help)" >&2; exit 2; }
