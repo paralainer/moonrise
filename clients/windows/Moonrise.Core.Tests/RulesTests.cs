@@ -84,14 +84,16 @@ public class RulesTests
     }
 
     [Fact]
-    public void PictureSubtitlesArePickedLikeTextOnes()
+    public void PictureSubtitlesComeAfterTextOnes()
     {
-        // The app draws picture tracks (PGS, DVD, DVB) as it draws text ones: the file's order decides.
-        var options = new[] { new SubtitleCandidate("pgs", "English - PGSSUB", "en", 2), new SubtitleCandidate("srt", "English - SUBRIP", "en", 3), new SubtitleCandidate("dvd", "English · Forced - DVDSUB", "en", 4) };
-        Assert.Equal("pgs", TrackRules.UsualSubtitle(options, on: true, "en", false, "ja")!.Id);
+        // The app draws picture tracks (PGS, DVD, DVB) too, but a text track of the same kind goes
+        // first (its size and style can change); a forced picture track is picked like a text one.
+        var options = new[] { new SubtitleCandidate("pgs", "English - PGSSUB", "en", 2, Picture: true), new SubtitleCandidate("srt", "English - SUBRIP", "en", 3), new SubtitleCandidate("dvd", "English · Forced - DVDSUB", "en", 4, Picture: true) };
+        Assert.Equal("srt", TrackRules.UsualSubtitle(options, on: true, "en", false, "ja")!.Id);
+        Assert.Equal("pgs", TrackRules.UsualSubtitle(options[..1], on: true, "en", false, "ja")!.Id);
         Assert.Equal("dvd", TrackRules.UsualSubtitle(options, on: false, "en", false, "en")!.Id);
         var remembered = Assert.IsType<SubtitleMemory.Use>(TrackRules.RememberedSubtitle(options, new TrackMemory { Subtitle = new TrackPick { Language = "en", Title = "English" } }));
-        Assert.Equal("pgs", remembered.Id);
+        Assert.Equal("srt", remembered.Id);
     }
 
     [Fact]

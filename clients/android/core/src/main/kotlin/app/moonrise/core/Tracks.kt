@@ -155,8 +155,7 @@ object TrackRules {
     /**
      * The subtitles picked last, among `options` (as `TrackRules.rememberedSubtitle` on Apple): in
      * the same file the track with its index (when its language agrees); else one of the same
-     * language and kind (forced or full), the same SDH and title first; picture tracks count as
-     * text ones do.
+     * language and kind (forced or full), the same SDH and title first, text before pictures.
      */
     fun rememberedSubtitle(options: List<SubtitleCandidate>, memory: TrackMemory?): SubtitleMemory {
         memory ?: return SubtitleMemory.Usual
@@ -172,7 +171,7 @@ object TrackRules {
         val title = want.title?.trim()?.ifEmpty { null }
         if (lang == null && (pool.isEmpty() || title == null)) return SubtitleMemory.Usual
         val sdh = want.sdh ?: false
-        val ordered = pool
+        val ordered = pool.filter { !it.picture } + pool.filter { it.picture }
         val found = ordered.firstOrNull { isSDH(it.title) == sdh && sameText(title, it.title) }
             ?: ordered.firstOrNull { sameText(title, it.title) && lang != null }
             ?: ordered.firstOrNull { isSDH(it.title) == sdh && lang != null }
@@ -182,7 +181,7 @@ object TrackRules {
 }
 
 /** A subtitle choice as [TrackRules.rememberedSubtitle] sees it. */
-data class SubtitleCandidate(val id: String, val title: String, val language: String?, val trackIndex: Int?)
+data class SubtitleCandidate(val id: String, val title: String, val language: String?, val trackIndex: Int?, val picture: Boolean)
 
 /** What the remembered subtitles say for a title starting. */
 sealed interface SubtitleMemory {

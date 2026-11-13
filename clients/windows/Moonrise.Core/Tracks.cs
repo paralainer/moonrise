@@ -82,8 +82,8 @@ public static class TrackLabels
 }
 
 public sealed record AudioCandidate(int Id, string? Language, bool IsDefault, string Name);
-/// <summary>A subtitle track to pick from: text and picture tracks alike (the app draws both).</summary>
-public sealed record SubtitleCandidate(string Id, string Title, string? Language, int? TrackIndex);
+/// <summary>A subtitle track to pick from: a text track, or a picture one (PGS, DVD, DVB), which the app draws too.</summary>
+public sealed record SubtitleCandidate(string Id, string Title, string? Language, int? TrackIndex, bool Picture = false);
 
 public sealed record TrackPick
 {
@@ -196,24 +196,28 @@ public static class TrackRules
         var title = RememberedSubtitleTitle(want.Title);
         if (lang == null && (pool.Count == 0 || title == null)) return new SubtitleMemory.Usual();
         var sdh = want.Sdh ?? false;
-        var found = pool.FirstOrDefault(o => IsSDH(o.Title) == sdh && SameText(title, o.Title))
-            ?? pool.FirstOrDefault(o => SameText(title, o.Title) && lang != null)
-            ?? pool.FirstOrDefault(o => IsSDH(o.Title) == sdh && lang != null)
-            ?? (lang != null ? pool.FirstOrDefault() : null);
+        // Text before pictures.
+        var ordered = pool.Where(o => !o.Picture).Concat(pool.Where(o => o.Picture)).ToList();
+        var found = ordered.FirstOrDefault(o => IsSDH(o.Title) == sdh && SameText(title, o.Title))
+            ?? ordered.FirstOrDefault(o => SameText(title, o.Title) && lang != null)
+            ?? ordered.FirstOrDefault(o => IsSDH(o.Title) == sdh && lang != null)
+            ?? (lang != null ? ordered.FirstOrDefault() : null);
         return found != null ? new SubtitleMemory.Use(found.Id) : new SubtitleMemory.Usual();
     }
 
     /// <summary>
     /// The subtitle a title starts with, as the other apps: subtitles in the preferred language when
-    /// on (the kind picked last first; text and picture tracks alike, in the file's order), else
-    /// forced subtitles in the audio's language. Null: Off.
+    /// on (the kind picked last first; a picture track, whose size and style can't change, only when
+    /// there's no text one), else forced subtitles in the audio's language, text or pictures. Null: Off.
     /// </summary>
     public static SubtitleCandidate? UsualSubtitle(IReadOnlyList<SubtitleCandidate> options, bool on, string? preferredLanguage, bool preferSdh, string? audioLanguage)
     {
         var lang = Languages.Normalized(preferredLanguage);
         if (on && lang != null)
         {
-            var pool = options.Where(o => SubtitleLanguage(o.Language, o.Title) == lang && !IsForced(o.Title)).ToList();
+            var all = options.Where(o => SubtitleLanguage(o.Language, o.Title) == lang && !IsForced(o.Title)).ToList();
+            var text = all.Where(o => !o.Picture).ToList();
+            var pool = text.Count > 0 ? text : all;
             var o = pool.FirstOrDefault(x => IsSDH(x.Title) == preferSdh) ?? pool.FirstOrDefault();
             if (o != null) return o;
         }
