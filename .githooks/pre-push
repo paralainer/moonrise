@@ -74,7 +74,7 @@ while read -r lref lsha rref rsha; do
     echo "pre-push: main takes changes through pull requests; push a branch" >&2; FAIL=1
   fi
   # Only commits not on GitHub yet: after a rebase, rsha..lsha would include main commits
-  # already there (whose committer GitHub sets on merge, which the owner accepted).
+  # already there (whose committer GitHub sets on merge, which is accepted).
   COMMITS=$(git rev-list "$lsha" --not --remotes)
   TREE=""; MSGS=""
   for i in "${!PATTERNS[@]}"; do

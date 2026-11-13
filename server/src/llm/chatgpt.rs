@@ -2193,7 +2193,7 @@ pub(crate) mod tests {
         assert_eq!(start(&m, &g, false).await["client_id"], "dynamic_agent_client");
     }
 
-    /// What production holds after the owner's failed sign-in: an unfinished registration whose
+    /// What a server holds after a failed sign-in: an unfinished registration whose
     /// retry is gone (expired, or the server restarted). Sign In registers afresh and completes;
     /// the leftover stays listed until Forget.
     #[tokio::test]
