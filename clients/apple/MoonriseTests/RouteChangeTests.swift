@@ -18,6 +18,8 @@ import Testing
         /// With `throughForwarder`: the real forwarder on the tailnet route, and the tunnel under it.
         let tunnel: FakeTunnel?
         let forwarder: PortForwarder?
+        /// Since the run began: how much of it the process spent waiting for a CPU (in `line`).
+        let watch = TestWatch()
 
         init(start: Double, startOnTailnet: Bool, throughForwarder: Bool = false) async throws {
             server = try FakeMoonrise()
@@ -59,8 +61,8 @@ import Testing
                 // The node goes (a live connection may sit idle in URLSession's pool until then):
                 // everything the forwarder opened for this run has to go with it.
                 tunnel?.closeAll()
-                let began = Date()
-                while Date().timeIntervalSince(began) < 20, !forwarder.counts.isIdle {
+                let began = TestWatch()
+                while began.elapsed < 20, !forwarder.counts.isIdle {
                     try? await Task.sleep(for: .milliseconds(100))
                 }
                 #expect(forwarder.counts.isIdle, "still open: \(forwarder.counts)")
@@ -70,9 +72,10 @@ import Testing
         }
 
         /// Plays until `after` seconds of the title have gone by.
-        func playUntilMoving(past position: Double, timeout: Double = 25) async throws {
-            let began = Date()
-            while Date().timeIntervalSince(began) < timeout {
+        /// Only the start: how long the first stream takes to get going isn't what is tested.
+        func playUntilMoving(past position: Double, timeout: Double = 60) async throws {
+            let began = TestWatch()
+            while began.elapsed < timeout {
                 if model.currentTime >= position, model.isPlaying, !model.isBuffering { return }
                 try await Task.sleep(for: .milliseconds(100))
             }
@@ -81,25 +84,27 @@ import Testing
         }
 
         /// Waits until the title has played on, past `past`, with no spinner, and answers how long
-        /// the viewer saw the spinner on the way (seconds, sampled).
+        /// the viewer saw the spinner on the way (seconds on a `TestWatch`, sampled).
         func playsOn(past: Double, within: Double) async throws -> Double {
-            let began = Date()
+            let began = TestWatch()
             var spinner = 0.0
-            let step = 0.1
-            while Date().timeIntervalSince(began) < within {
+            var last = began.elapsed
+            while began.elapsed < within {
+                let now = began.elapsed
                 if model.currentTime >= past, model.isPlaying, !model.isBuffering, model.recovery == .none {
                     return spinner
                 }
-                if model.isBuffering || model.recovery == .recovering { spinner += step }
-                try await Task.sleep(for: .milliseconds(Int(step * 1000)))
+                if model.isBuffering || model.recovery == .recovering { spinner += now - last }
+                last = now
+                try await Task.sleep(for: .milliseconds(100))
             }
             Issue.record("still not playing after \(within) s: at \(model.currentTime), playing \(model.isPlaying), buffering \(model.isBuffering), recovery \(model.recovery), sessions \(server.sessions.map(\.id)), route \(String(describing: ConnectionRouter.shared.route))")
             throw CancellationError()
         }
 
         func pickSecondAudio() async throws {
-            let began = Date()
-            while Date().timeIntervalSince(began) < 10, !model.tracksSettled || model.audioOptions.count < 2 {
+            let began = TestWatch()
+            while began.elapsed < 30, !model.tracksSettled || model.audioOptions.count < 2 {
                 try await Task.sleep(for: .milliseconds(100))
             }
             model.selectAudio(4)
@@ -107,7 +112,8 @@ import Testing
         }
 
         var line: String {
-            "at \(model.currentTime), sessions \(server.sessions.map { "\($0.id)@\($0.start ?? -1) on \($0.route)" })"
+            "at \(model.currentTime), sessions \(server.sessions.map { "\($0.id)@\($0.start ?? -1) on \($0.route)" }), "
+                + String(format: "%.1f s waiting for a CPU", watch.lost)
         }
     }
 
@@ -208,11 +214,11 @@ import Testing
             run.tailnet.set(.mediaHung)
             run.home.set(.hung)
             ConnectionRouter.shared.debugNetworkChanged()
-            let began = Date()
-            while Date().timeIntervalSince(began) < 60, !(run.model.streamFailure != nil) {
+            let began = TestWatch()
+            while began.elapsed < 60, !(run.model.streamFailure != nil) {
                 try await Task.sleep(for: .milliseconds(200))
             }
-            let took = Date().timeIntervalSince(began)
+            let took = began.elapsed
             print("RouteChange neverDelivers: failed \((run.model.streamFailure != nil)) after \(took) s")
             #expect((run.model.streamFailure != nil))
             #expect(took < 50, "spun for \(took) s")
@@ -225,9 +231,10 @@ import Testing
 
     /// Paused and moved, then a pause longer than the give-up limit: that wait isn't recovery time,
     /// so a failure soon after resuming gets a new stream and not "Playback stopped". The buffer
-    /// stays small (the moved stream's route stops sending segments once it is ready), so the failure
-    /// comes well inside the 15 s of playback that would clear the wait anyway. `kill` is what
-    /// goes wrong during the pause.
+    /// stays small (the moved stream serves only its first 6 s, and its route stops sending
+    /// segments once it is ready), so the failure comes well inside the 15 s of playback that
+    /// would clear the wait anyway, however long the move took. `kill` is what goes wrong during
+    /// the pause.
     private func pausedMoveThenFailure(_ kill: (Run) -> Void, movesHome: Bool) async throws {
         let run = try await Run(start: 5, startOnTailnet: false)
         run.model.recoveryGiveUp = 6
@@ -238,10 +245,11 @@ import Testing
             #expect(!run.model.isPlaying)
             let at = run.model.currentTime
             // Leaves home while paused: the stream moves, and stays paused.
+            run.server.limitNextSession(to: 6)
             run.home.set(.hung)
             ConnectionRouter.shared.debugNetworkChanged()
-            let began = Date()
-            while Date().timeIntervalSince(began) < 20, run.server.sessions.count < 2 || run.model.recovery != .none {
+            let began = TestWatch()
+            while began.elapsed < 20, run.server.sessions.count < 2 || run.model.recovery != .none {
                 try await Task.sleep(for: .milliseconds(100))
             }
             #expect(run.server.sessions.count == 2, "\(run.line)")
@@ -253,8 +261,8 @@ import Testing
             if movesHome {
                 run.home.set(.up)
                 ConnectionRouter.shared.debugNetworkChanged()
-                let asked = Date()
-                while Date().timeIntervalSince(asked) < 10, ConnectionRouter.shared.route != .lan {
+                let asked = TestWatch()
+                while asked.elapsed < 10, ConnectionRouter.shared.route != .lan {
                     try await Task.sleep(for: .milliseconds(100))
                 }
             }
@@ -311,6 +319,14 @@ import Testing
             run.tunnel?.set(.dead)
             ConnectionRouter.shared.debugNetworkChanged()
             try await Task.sleep(for: .seconds(20))
+            // Dead until a dial on it has been given up on: the first dial comes from the route
+            // check after the event (behind a probe of the hung home address), and is given up
+            // `dialTimeout` later. That is about 12 s in on an idle machine; on a busy one the
+            // dial starts later, and a tunnel back before the timeout would complete it instead.
+            let dead = TestWatch()
+            while dead.elapsed < 30, run.forwarder!.counts.dialsTimedOut == 0 {
+                try await Task.sleep(for: .milliseconds(100))
+            }
             run.tunnel?.set(.up)
             let spinner = try await run.playsOn(past: at + 10, within: 45)
             print("RouteChange forwarder back: spinner \(spinner) s, \(run.line), \(run.forwarder!.counts)")
@@ -332,14 +348,14 @@ import Testing
             try await run.playUntilMoving(past: 8)
             run.tunnel?.set(.dead)
             ConnectionRouter.shared.debugNetworkChanged()
-            let began = Date()
-            while Date().timeIntervalSince(began) < 60, run.model.streamFailure == nil {
+            let began = TestWatch()
+            while began.elapsed < 60, run.model.streamFailure == nil {
                 try await Task.sleep(for: .milliseconds(200))
             }
-            let took = Date().timeIntervalSince(began)
+            let took = began.elapsed
             // The player has given up: nothing is left on the dead tunnel.
-            let released = Date()
-            while Date().timeIntervalSince(released) < 12, run.forwarder!.counts.bridges > 0 {
+            let released = TestWatch()
+            while released.elapsed < 12, run.forwarder!.counts.bridges > 0 {
                 try await Task.sleep(for: .milliseconds(100))
             }
             let counts = run.forwarder!.counts

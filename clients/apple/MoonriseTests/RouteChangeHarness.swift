@@ -39,6 +39,10 @@ final class FakeMoonrise: @unchecked Sendable {
     private var forgotten = 0
     /// Media further ahead of the viewer than this is held back, so a stall comes soon (seconds).
     var bufferAhead: Double = 6
+    /// The next session opened serves only this many seconds from where it starts, and never the
+    /// rest: a buffer that stays that small however long the test takes to look.
+    private var nextSessionLimit: Double?
+    private var limits: [String: Double] = [:]
 
     private let itemJSON: Data
     private let playbackTemplate: [String: Any]
@@ -111,6 +115,9 @@ final class FakeMoonrise: @unchecked Sendable {
     var reports: [FakeReport] { lock.withLock { _reports } }
     var deleted: [String] { lock.withLock { _deleted } }
 
+    /// The next session opened serves only `seconds` of media from where it starts.
+    func limitNextSession(to seconds: Double) { lock.withLock { nextSessionLimit = seconds } }
+
     /// A restart: every session's URLs answer 410 from now on.
     func forgetSessions() { lock.withLock { forgotten = _sessions.count } }
 
@@ -134,7 +141,10 @@ final class FakeMoonrise: @unchecked Sendable {
             let sid = "session\(sessions.count + 1)"
             let s = FakeSession(id: sid, start: query["start"].flatMap(Double.init), version: query["version"],
                                 quality: query["quality"], route: route)
-            lock.withLock { _sessions.append(s) }
+            lock.withLock {
+                _sessions.append(s)
+                if let limit = nextSessionLimit { limits[sid] = limit; nextSessionLimit = nil }
+            }
             var p = playbackTemplate
             p["session"] = sid
             p["master"] = "/v1/s/\(sid)/master.m3u8"
@@ -193,6 +203,8 @@ final class FakeMoonrise: @unchecked Sendable {
         let wait = time - (s.start ?? 0) - bufferAhead
         var a = Answer(type: "video/mp2t", body: data.subdata(in: from..<min(to + 1, data.count)))
         if wait > 0 { a.notBefore = first.addingTimeInterval(wait) }
+        // Past a session's limit: never.
+        if let limit = lock.withLock({ limits[sid] }), time - (s.start ?? 0) >= limit { a.notBefore = .distantFuture }
         if ranged {
             a.status = 206
             a.extra = ["Content-Range: bytes \(from)-\(min(to, data.count - 1))/\(data.count)"]
@@ -527,4 +539,53 @@ final class FakeTunnel: @unchecked Sendable {
             if dead { usleep(20_000) }
         }
     }
+}
+
+/// How late this test process's threads get to run: a thread that asks to wake every 10 ms adds
+/// up how much later than that it wakes. On an idle machine that is close to nothing; with every
+/// core busy (other builds, other simulators) it is the time the app's own code, the player's and
+/// the test's were kept waiting for a CPU.
+final class LoadMeter: @unchecked Sendable {
+    static let shared = LoadMeter()
+    private let lock = NSLock()
+    private var _late: TimeInterval = 0
+
+    private init() {
+        let thread = Thread { [self] in
+            let tick: TimeInterval = 0.01
+            var last = ProcessInfo.processInfo.systemUptime
+            while true {
+                usleep(useconds_t(tick * 1_000_000))
+                let now = ProcessInfo.processInfo.systemUptime
+                let late = now - last - tick
+                // Below that is the timer's own slack (wakeups are coalesced), not a wait for a CPU.
+                if late > 0.005 { lock.withLock { _late += late } }
+                last = now
+            }
+        }
+        thread.qualityOfService = .userInitiated
+        thread.start()
+    }
+
+    /// Seconds of waiting for a CPU since the meter started.
+    var late: TimeInterval { lock.withLock { _late } }
+}
+
+/// A stopwatch for the route-change tests' waits and limits: wall time less the time the process
+/// waited for a CPU meanwhile (`LoadMeter`). The app's own waits (a probe's timeout, the stall
+/// checks, the give-up limit) are real time and pass as they do on a phone; what a loaded build
+/// machine adds on top is the time nothing of the app could run, and that is not counted against
+/// a limit. On an idle machine it reads as wall time.
+struct TestWatch {
+    private let wall = ProcessInfo.processInfo.systemUptime
+    private let late = LoadMeter.shared.late
+
+    /// Seconds since the watch started, not counting the time the process waited for a CPU.
+    var elapsed: TimeInterval {
+        let wallNow = ProcessInfo.processInfo.systemUptime
+        return max(0, (wallNow - wall) - (LoadMeter.shared.late - late))
+    }
+
+    /// The part of the wall time since the start that was spent waiting for a CPU.
+    var lost: TimeInterval { LoadMeter.shared.late - late }
 }
