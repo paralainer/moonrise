@@ -638,7 +638,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!((s.display_title.as_str(), s.is_text), ("Spanish - PGSSUB", false));
-        let stem = "The.Rehearsal.S01E01.1080p.WEBRip.x265-RARBG[eztv.re]";
+        let stem = "The.Rehearsal.S01E01.1080p.WEBRip.x265-GROUP[site.re]";
         let side = |n: &str, i| sidecar(stem, &format!("/m/{stem}.{n}"), i);
         assert_eq!(side("English.2.srt", 0).display_title, "2 - English - SUBRIP - External");
         assert_eq!(side("Dutch.8.srt", 0).display_title, "Dutch.8 - Undefined - SUBRIP - External");

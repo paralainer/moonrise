@@ -694,15 +694,15 @@ mod tests {
         let cases = [
             ("Puss in Boots 720p.mkv", "Puss in Boots", None),
             ("Kong.Skull.Island.Bdrip.1080p.by.AKTEP.mkv", "Kong Skull Island", None),
-            ("Operation.Fortune.Ruse.de.guerre.2023.1080p.WEB.H264-NAISU[TGx]/operation.fortune.ruse.de.guerre.2023.1080p.web.h264-naisu.mkv", "operation fortune ruse de guerre", Some(2023)),
-            ("The Electric State (2025) [1080p] [WEBRip] [x265] [10bit] [5.1] [YTS.MX]/The.Electric.State.2025.1080p.WEBRip.x265.10bit.AAC5.1-[YTS.MX].mp4", "The Electric State", Some(2025)),
+            ("Operation.Fortune.Ruse.de.guerre.2023.1080p.WEB.H264-NAISU[GRP]/operation.fortune.ruse.de.guerre.2023.1080p.web.h264-naisu.mkv", "operation fortune ruse de guerre", Some(2023)),
+            ("The Electric State (2025) [1080p] [WEBRip] [x265] [10bit] [5.1] [SITE.XY]/The.Electric.State.2025.1080p.WEBRip.x265.10bit.AAC5.1-[SITE.XY].mp4", "The Electric State", Some(2025)),
             ("Thor - The Dark World (2013) (1080p BluRay x265 HEVC 10bit AAC 7.1 Tigole)/Thor - The Dark World (2013) (1080p BluRay x265 10bit Tigole).mkv", "Thor - The Dark World", Some(2013)),
             ("Marvel/Avengers.Age.of.Ultron.2015.BDRip.1080p.BLUEBIRD.mkv", "Avengers Age of Ultron", Some(2015)),
             ("Zootopia (2016).mkv", "Zootopia", Some(2016)),
             ("Constantine.mkv", "Constantine", None),
             ("Home Alone 2 1992.mkv", "Home Alone 2", Some(1992)),
-            ("Taxi.2.2000.BDRip.1080p-rutracker.mkv", "Taxi 2", Some(2000)),
-            ("www.UIndex.org    -    Mafia 1998 1080p BluRay Remux AVC DTS-HD MA 5 1-PmP/Mafia 1998 1080p BluRay Remux AVC DTS-HD MA 5 1-PmP.mkv", "Mafia", Some(1998)),
+            ("Taxi.2.2000.BDRip.1080p-tracker.mkv", "Taxi 2", Some(2000)),
+            ("www.Example.org    -    Mafia 1998 1080p BluRay Remux AVC DTS-HD MA 5 1-PmP/Mafia 1998 1080p BluRay Remux AVC DTS-HD MA 5 1-PmP.mkv", "Mafia", Some(1998)),
             ("Moana_2016_BDRip_iT_by_Dalemake.avi", "Moana", Some(2016)),
             ("Babylon.2022.WEB-DL.1080p_от New-Team_JNS82.mkv", "Babylon", Some(2022)),
             ("Django Unchained (2012)  [1080p x265 q18 FS100 Joy].mkv", "Django Unchained", Some(2012)),
@@ -754,7 +754,7 @@ mod tests {
             (Some(9), Some(4), None)
         );
         assert_eq!(
-            ep("Agatha All Along (2024)/Season 1/Agatha All Along S01E01 1080p x265-ELiTE[EZTVx.to].mkv"),
+            ep("Agatha All Along (2024)/Season 1/Agatha All Along S01E01 1080p x265-ELiTE[SITEx.to].mkv"),
             (Some(1), Some(1), None)
         );
         assert_eq!(
