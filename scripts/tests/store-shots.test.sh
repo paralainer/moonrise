@@ -19,9 +19,11 @@ echo "scp $*" >> "$LOG"
 for a; do to=$a; done
 printf '\xff\xd8\xff\xd9' > "$to"
 STUB
-# ssh: a simulator's UDID when asked for one.
+# ssh: a simulator's UDID when asked for one; the simulator lock (sim_lock) taken at once and held
+# until stdin closes.
 cat > "$SCRATCH/bin/ssh" <<'STUB'
 #!/bin/bash
+case "$*" in *" sim-lock "*) echo "ssh $(printf '%s\n' "$@" | grep -m1 @) sim-lock" >> "$LOG"; echo locked; cat >/dev/null; exit 0 ;; esac
 echo "ssh $*" >> "$LOG"
 case "$*" in
   *"simctl list devices available"*) echo 11111111-2222-3333-4444-555555555555 ;;

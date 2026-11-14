@@ -389,3 +389,51 @@ install_on_device() {
   fi
   echo "==> $2 now has $APP_NAME $stamp (build $version; install record $(sed -n 's/.*databaseSequenceNumber: //p' <<<"$out" | head -1)$([ -n "$listed" ] && echo ", confirmed by the device's app list"))"
 }
+
+# The build Mac's simulator lock (scripts/sim-lock.sh has the Mac's side): the runs that boot
+# simulators or build there for tests (test-apple.sh, check.sh's Apple builds, store-shots.sh)
+# take it first, so only one of them uses the Mac at a time, whichever checkout or machine they
+# run from. Several at once made the 16 GB Mac swap until the app's timing tests failed.
+#
+# sim_lock <what>: takes the lock on $MAC, waiting (and saying so) while another run holds it, for
+# up to SIM_LOCK_WAIT seconds (default 5400). A lock whose holder is gone, or older than
+# SIM_LOCK_MAX_AGE seconds (default 14400), is taken over. The lock is held by an ssh session to
+# the Mac that stays open in the background: it is released when sim_unlock closes it, when this
+# script exits or is stopped (Ctrl-C), or when the connection drops. Returns 1 when it couldn't
+# take the lock (waited too long, or the Mac didn't answer). Uses file descriptor 9.
+SIM_LOCK_WAIT=${SIM_LOCK_WAIT:-5400}; SIM_LOCK_MAX_AGE=${SIM_LOCK_MAX_AGE:-14400}
+SIM_LOCK_PID=; SIM_LOCK_TMP=
+# sq <text>: the text in single quotes, for a shell on the other side of ssh (sh, bash or zsh).
+sq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+sim_lock() {
+  local what=$1 code rc
+  [ -z "$SIM_LOCK_PID" ] || return 0
+  SIM_LOCK_TMP=$(mktemp -d "${TMPDIR:-/tmp}/moonrise-sim-lock.XXXXXX") || return 1
+  mkfifo "$SIM_LOCK_TMP/in" || return 1
+  # Without its comments: the whole script goes on the ssh command line.
+  code=$(grep -v '^ *#' "$MOONRISE_ROOT/scripts/sim-lock.sh") || return 1
+  ssh "${MAC_SSH_OPTS[@]}" "$MAC" "bash -c $(sq "$code") sim-lock $SIM_LOCK_WAIT $SIM_LOCK_MAX_AGE $(sq "$what from $(hostname 2>/dev/null || echo ?)")" \
+    < "$SIM_LOCK_TMP/in" > "$SIM_LOCK_TMP/out" &
+  SIM_LOCK_PID=$!
+  exec 9> "$SIM_LOCK_TMP/in"
+  while ! grep -qx locked "$SIM_LOCK_TMP/out" 2>/dev/null; do
+    if ! kill -0 "$SIM_LOCK_PID" 2>/dev/null; then
+      grep -qx locked "$SIM_LOCK_TMP/out" 2>/dev/null && break
+      wait "$SIM_LOCK_PID" && rc=0 || rc=$?
+      echo "error: couldn't take the build Mac's simulator lock on $MAC (exit $rc)" >&2
+      SIM_LOCK_PID=
+      exec 9>&-
+      rm -rf "$SIM_LOCK_TMP"
+      return 1
+    fi
+    sleep 1
+  done
+}
+# sim_unlock: releases the lock sim_lock took (nothing when there is none). Runs on exit too.
+sim_unlock() {
+  [ -n "$SIM_LOCK_PID" ] || return 0
+  exec 9>&-
+  wait "$SIM_LOCK_PID" 2>/dev/null || true
+  SIM_LOCK_PID=
+  rm -rf "$SIM_LOCK_TMP"
+}

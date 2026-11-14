@@ -49,6 +49,9 @@ server's `cargo test` and clippy (in Docker), the Android unit tests (`clients/a
 the Windows app's shared-rule tests (`scripts/test-windows-core.sh`, in Docker)
 and the Apple apps' unit tests (`MoonriseTests`, Swift Testing, through `scripts/test-apple.sh` on a
 throwaway simulator on the build Mac; skipped with a note when there is none). All of it is offline.
+The build Mac runs one Apple test run at a time: `test-apple.sh`, `check.sh`'s Apple builds and
+`store-shots.sh` take a lock there (`~/.moonrise-sim-lock`), so a second run, from any checkout,
+waits and says so, and gives up after `SIM_LOCK_WAIT` seconds (default 5400).
 Run it, or `make check`, which adds the image and simulator builds and the export scan, before a
 pull request. A bug fix comes with a test that fails without it. In Xcode, the
 `MoonriseTests` scheme runs the Apple tests (`⌘U`) on an iPhone simulator.

@@ -13,7 +13,8 @@
 # folder scripts/build.sh uses, so a test run and a build don't collide. Exits 0 when every test
 # passes, 1 when one fails or the build breaks, 3 when the Mac can't be reached or is listed in
 # PERSONAL_MACS (someone's own Mac: tests never run there; scripts/test-all.sh reports that as
-# skipped).
+# skipped). One run at a time: a second one, from any checkout, waits for the first (it says so),
+# for up to SIM_LOCK_WAIT seconds (sim_lock in scripts/common.sh).
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -54,6 +55,11 @@ xcodebuild test -project $APPLE_DIR/Moonrise.xcodeproj -scheme MoonriseTVUITests
 grep -E ': error: |Test Case .* failed|Executed [0-9]+ test|\\*\\* TEST' build-tests-tv.log | head -40
 exit \$rc"
 }
+
+# One run at a time on the Mac (sim_lock in common.sh): taken before the copy, as another run's
+# tests may be using ~/$MAC_TEST_DIR, and released on the way out.
+trap sim_unlock EXIT
+sim_lock "test-apple.sh${ONLY:+ ONLY=$ONLY}" || { echo "==> Apple tests not run" >&2; exit 1; }
 
 echo "==> Apple unit tests on $MAC (~/$MAC_TEST_DIR)"
 rsync_retry -a --delete --exclude .git --exclude /private --exclude "server/" --exclude /clients/android \
