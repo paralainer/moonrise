@@ -19,7 +19,7 @@ esac
 # name still gets a default here, as the scripts run under set -u.
 # Device ids given in the environment win over mac.env's (PHONE_DEVICE=<id> scripts/deploy-phone.sh).
 ENV_PHONE_DEVICE=${PHONE_DEVICE:-}; ENV_IPAD_DEVICE=${IPAD_DEVICE:-}; ENV_TV_DEVICE=${TV_DEVICE:-}
-ENV_RELEASE_MAC=${RELEASE_MAC:-}
+ENV_RELEASE_MAC=${RELEASE_MAC:-}; ENV_STORE_BUNDLE_ID=${STORE_BUNDLE_ID:-}
 if [ -f "$MOONRISE_ROOT/scripts/mac.env" ]; then
   . "$MOONRISE_ROOT/scripts/mac.env"
 fi
@@ -28,6 +28,8 @@ MAC=${MAC:-}
 # The Mac for signed distribution builds (release-apple.sh, store-shots.sh, ota.sh; use_release_mac
 # below): the environment's RELEASE_MAC wins over mac.env's.
 RELEASE_MAC=${ENV_RELEASE_MAC:-${RELEASE_MAC:-}}; PERSONAL_MACS=${PERSONAL_MACS:-}
+# The App Store app's bundle id (use_store_id below): the environment's wins over mac.env's.
+STORE_BUNDLE_ID=${ENV_STORE_BUNDLE_ID:-${STORE_BUNDLE_ID:-}}
 MAC_DIR_GIVEN=${MAC_DIR:-}
 MAC_DIR=${MAC_DIR:-video-player}
 SIM_PHONE=${SIM_PHONE:-}; SIM_TV=${SIM_TV:-}
@@ -193,6 +195,23 @@ else
   APP_NAME="Moonrise"
   BUILD_SUFFIX=
   VARIANT_SETTINGS=
+fi
+# use_store_id <script>: the scripts for the App Store (release-apple.sh, store-shots.sh) act on the
+# App Store app, STORE_BUNDLE_ID (scripts/mac.env or the environment), never on MOONRISE_BUNDLE_ID,
+# the id device installs use (it may be another app). Stops when it is unset. From here on APP_ID is
+# that id and builds get it after the xcconfig (VARIANT_SETTINGS); exported, so the scripts this one
+# runs (build.sh) do the same when they source this file.
+use_store_id() {
+  if [ -z "$STORE_BUNDLE_ID" ]; then
+    echo "error: $1 needs the App Store app's bundle id: set STORE_BUNDLE_ID in scripts/mac.env (or the environment). It never falls back to MOONRISE_BUNDLE_ID, the id device installs use" >&2
+    exit 1
+  fi
+  APP_ID=$STORE_BUNDLE_ID; BASE_APP_ID=$APP_ID
+  VARIANT_SETTINGS="MOONRISE_BUNDLE_ID=$APP_ID"
+  export STORE_BUNDLE_ID MOONRISE_STORE_BUILD=1
+}
+if [ "${MOONRISE_STORE_BUILD:-}" = 1 ]; then
+  use_store_id "$0"
 fi
 if [ ! -f "$MOONRISE_ROOT/$APPLE_DIR/Config/Signing.local.xcconfig" ] && [ -z "${MOONRISE_SIGNING_NOTED:-}" ]; then
   echo "note: no $APPLE_DIR/Config/Signing.local.xcconfig, so the app is $APP_ID with no team (simulator builds only); copy $APPLE_DIR/Config/Signing.local.xcconfig.example to sign for devices" >&2

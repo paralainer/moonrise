@@ -3,7 +3,8 @@
 # build Mac RELEASE_MAC (below) with fastlane (clients/apple/fastlane) and the App Store Connect API
 # key in ASC_ENV there; the review contact comes from REVIEW_ENV there. Nothing secret is in the
 # repository. One App Store Connect app for iPhone, iPad, Apple TV and Mac, bundle id
-# MOONRISE_BUNDLE_ID (clients/apple/Config/Signing.local.xcconfig). docs/publishing.md has the steps.
+# STORE_BUNDLE_ID (scripts/mac.env or the environment; never MOONRISE_BUNDLE_ID from
+# clients/apple/Config/Signing.local.xcconfig, the id device installs use). docs/publishing.md has the steps.
 #
 #   scripts/release-apple.sh ids                 register the bundle ids (app, .widgets, .topshelf) when missing
 #   scripts/release-apple.sh profiles [P|all]    App Store profiles for P (ios, tvos, mac): made when missing,
@@ -101,6 +102,7 @@ case "$CMD" in
 esac
 
 release_mac_ok || exit 1
+use_store_id scripts/release-apple.sh
 need_signing scripts/release-apple.sh
 need "$ASC_ENV" "no App Store Connect key: set ASC_ENV in scripts/mac.env (a file on the Mac exporting ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_PATH, APPLE_TEAM_ID)"
 [ -n "$VERSION" ] || { echo "error: no MARKETING_VERSION in $APPLE_DIR/project.yml" >&2; exit 1; }
@@ -191,7 +193,7 @@ scripts/xcodegen.sh >/dev/null
 rm -rf $OUT && mkdir -p $OUT
 xcodebuild archive -project $APPLE_DIR/Moonrise.xcodeproj -scheme Moonrise -configuration Release -destination '$DEST' \
   -archivePath $OUT/Moonrise.xcarchive -derivedDataPath build-release-dd-$P CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=\$APPLE_TEAM_ID \
-  'CODE_SIGN_IDENTITY=Apple Distribution' $SETTINGS CURRENT_PROJECT_VERSION=$BUILD MARKETING_VERSION=$VERSION \
+  'CODE_SIGN_IDENTITY=Apple Distribution' $VARIANT_SETTINGS $SETTINGS CURRENT_PROJECT_VERSION=$BUILD MARKETING_VERSION=$VERSION \
   MOONRISE_BUILD_STAMP=$(build_stamp) > $OUT/archive.log 2>&1 || { grep -E 'error|BUILD FAILED' $OUT/archive.log | sort -u | head -20; echo 'archive failed: ~/$MAC_DIR/$OUT/archive.log'; exit 1; }
 cat > $OUT/export.plist <<PL
 <?xml version=\"1.0\" encoding=\"UTF-8\"?>

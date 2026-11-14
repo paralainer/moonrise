@@ -13,28 +13,33 @@
 #   used, without RELEASE_MAC it stops before reaching any Mac, a Mac in PERSONAL_MACS is refused,
 #   and the environment's RELEASE_MAC wins over mac.env's. build-tailscalekit.sh, which a store
 #   build calls with TSKIT_MAC, keeps that Mac over mac.env's.
+# - the app is STORE_BUNDLE_ID, never the signing file's MOONRISE_BUNDLE_ID (the id device installs
+#   use): every fastlane call and a store build's archive get it; without it every command but
+#   check-metadata refuses before reaching a Mac; the environment's wins over mac.env's.
 # The build Mac is a stub `ssh` that answers as fastlane would.
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 C=$(fresh_clone)
 mkdir -p "$C/clients/apple/fastlane" "$SCRATCH/bin"
 cp -r "$REPO/clients/apple/fastlane/metadata" "$REPO/clients/apple/fastlane/review_notes.txt" "$C/clients/apple/fastlane/"
 cp "$REPO/clients/apple/project.yml" "$C/clients/apple/"
-printf 'MOONRISE_BUNDLE_ID = org.example.store\nMOONRISE_DEVELOPMENT_TEAM = ABCDE12345\n' > "$C/clients/apple/Config/Signing.local.xcconfig"
+printf 'MOONRISE_BUNDLE_ID = org.example.device\nMOONRISE_DEVELOPMENT_TEAM = ABCDE12345\n' > "$C/clients/apple/Config/Signing.local.xcconfig"
 LOG="$SCRATCH/calls.log"; export LOG
 printf '#!/bin/bash\necho "rsync $*" >> "$LOG"\n' > "$SCRATCH/bin/rsync"
 cat > "$SCRATCH/bin/ssh" <<'STUB'
 #!/bin/bash
 echo "ssh $*" >> "$LOG"
+echo "ssh $*" | tr '\n' ' ' >> "$LOG.calls"; echo >> "$LOG.calls"
 case "$*" in
   *"fastlane next_build"*) printf '\033[32m[12:00:00]: Latest upload\033[0m\nMOONRISE_LATEST_BUILD=41\n' ;;
+  *"fastlane store_profiles"*) echo MOONRISE_PROFILE=ok ;;
 esac
 exit 0
 STUB
 chmod +x "$SCRATCH/bin/"*
 run() {
-  rm -f "$LOG"; touch "$LOG"
-  env -u MAC -u FASTLANE_MAC -u TSKIT_MAC -u PERSONAL_MACS RELEASE_MAC="${RELEASE_MAC-builder@example.invalid}" \
-    PATH="$SCRATCH/bin:$PATH" ASC_ENV='~/asc.env' bash "$C/scripts/release-apple.sh" "$@" 2>&1
+  rm -f "$LOG" "$LOG.calls"; touch "$LOG" "$LOG.calls"
+  env -u MAC -u FASTLANE_MAC -u TSKIT_MAC -u PERSONAL_MACS -u MOONRISE_STORE_BUILD RELEASE_MAC="${RELEASE_MAC-builder@example.invalid}" \
+    STORE_BUNDLE_ID="${STORE_BUNDLE_ID-org.example.store}" PATH="$SCRATCH/bin:$PATH" ASC_ENV='~/asc.env' bash "$C/scripts/release-apple.sh" "$@" 2>&1
 }
 
 out=$(run check-metadata); rc=$?
@@ -95,6 +100,43 @@ out=$(MOONRISE_VERSION=1.2.3 run next-build ios)
 expect_in "MOONRISE_VERSION=1.2.3" "$(cat "$LOG")" "MOONRISE_VERSION overrides the version"
 out=$(run next-build watchos); rc=$?
 expect_status 2 $rc "an unknown platform" "$out"
+
+# The App Store app: STORE_BUNDLE_ID, not the signing file's device id.
+out=$(run status); rc=$?
+expect_status 0 $rc "status with STORE_BUNDLE_ID" "$out"
+expect_in "MOONRISE_BUNDLE_ID=org.example.store " "$(cat "$LOG")" "status asks about STORE_BUNDLE_ID's app"
+out=$(ALLOW_DIRTY=1 run ios); rc=$?
+expect_status 0 $rc "a store build with stubs" "$out"
+calls=$(cat "$LOG")
+# One line per ssh call: each fastlane call carries the id itself.
+fl_calls=$(grep -F 'fastlane ' "$LOG.calls")
+[ "$(grep -c . <<<"$fl_calls")" -ge 2 ] && ok || fail "a store build made fewer than two fastlane calls" "$calls"
+others=$(grep -vF 'MOONRISE_BUNDLE_ID=org.example.store ' <<<"$fl_calls")
+[ -z "$others" ] && ok || fail "fastlane calls without STORE_BUNDLE_ID" "$others"
+expect_in "xcodebuild archive" "$calls" "the archive ran"
+archive=$(grep -A3 'xcodebuild archive' <<<"$calls")
+expect_in "MOONRISE_BUNDLE_ID=org.example.store " "$archive" "the archive is built as STORE_BUNDLE_ID (after the xcconfig)"
+expect_in "<key>org.example.store</key><string>org.example.store AppStore ios</string>" "$calls" "its profiles are STORE_BUNDLE_ID's"
+expect_in "<key>org.example.store.widgets</key>" "$calls" "and its extension's"
+expect_not_in "org.example.device" "$calls" "never the signing file's device id"
+expect_not_in "org.example.device" "$out" "never the signing file's device id (output)"
+for c in status app ids builds "next-build ios" ios "metadata ios" "upload ios"; do
+  out=$(STORE_BUNDLE_ID= run $c); rc=$?
+  expect_status 1 $rc "$c without STORE_BUNDLE_ID" "$out"
+  expect_in "set STORE_BUNDLE_ID in scripts/mac.env" "$out" "$c says what to set"
+  [ -s "$LOG" ] && fail "$c without STORE_BUNDLE_ID reached the Mac" "$(cat "$LOG")" || ok
+done
+out=$(STORE_BUNDLE_ID= MOONRISE_BUNDLE_ID=org.example.store run status); rc=$?
+expect_status 1 $rc "MOONRISE_BUNDLE_ID in the environment doesn't stand in for STORE_BUNDLE_ID" "$out"
+out=$(STORE_BUNDLE_ID= run check-metadata); rc=$?
+expect_status 0 $rc "check-metadata needs no STORE_BUNDLE_ID" "$out"
+printf 'STORE_BUNDLE_ID=org.example.fromenv\n' > "$C/scripts/mac.env"
+out=$(STORE_BUNDLE_ID= run status); rc=$?
+expect_status 0 $rc "STORE_BUNDLE_ID from mac.env" "$out"
+expect_in "MOONRISE_BUNDLE_ID=org.example.fromenv " "$(cat "$LOG")" "uses mac.env's STORE_BUNDLE_ID"
+out=$(STORE_BUNDLE_ID=org.example.other run status)
+expect_in "MOONRISE_BUNDLE_ID=org.example.other " "$(cat "$LOG")" "the environment's STORE_BUNDLE_ID wins over mac.env's"
+rm -f "$C/scripts/mac.env"
 
 out=$(run submit ios); rc=$?
 expect_status 2 $rc "submit without --yes" "$out"

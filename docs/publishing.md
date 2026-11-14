@@ -33,8 +33,8 @@ changes them to its own account.
 
 ## App Store
 
-One App Store Connect app for iPhone, iPad, Apple TV and Mac (universal purchase) under your bundle
-id (`MOONRISE_BUNDLE_ID` in the git-ignored `clients/apple/Config/Signing.local.xcconfig`), with
+One App Store Connect app for iPhone, iPad, Apple TV and Mac (universal purchase) under its bundle
+id, `STORE_BUNDLE_ID` in the git-ignored `scripts/mac.env` (the environment wins), with
 the extensions `<id>.widgets` (iOS) and `<id>.topshelf` (tvOS). `scripts/release-apple.sh` does
 everything the App Store Connect API allows, on the build Mac, with fastlane
 (`clients/apple/fastlane`); `scripts/release-apple.sh --help` lists its commands.
@@ -44,6 +44,10 @@ everything the App Store Connect API allows, on the build Mac, with fastlane
 - `RELEASE_MAC=user@host` in `scripts/mac.env` names that Mac. `release-apple.sh`,
   `store-shots.sh` and `ota.sh` use only it, never `MAC`, which may point at someone's own Mac;
   list such Macs in `PERSONAL_MACS` and the scripts refuse them (and the app's tests skip them).
+- `STORE_BUNDLE_ID=<id>` in `scripts/mac.env`: the App Store app. `release-apple.sh` and
+  `store-shots.sh` use only it and refuse to run without it. They never fall back to
+  `MOONRISE_BUNDLE_ID` in `clients/apple/Config/Signing.local.xcconfig`, which stays the id the
+  device installs (`deploy-*.sh`) and `ota.sh` use, and may be another app.
 - Xcode, XcodeGen and fastlane (Homebrew), and in the login keychain the certificates
   *Apple Distribution* and, for the Mac's installer package, *3rd Party Mac Developer Installer*.
   `MAC_UNLOCK` unlocks the keychain over SSH.

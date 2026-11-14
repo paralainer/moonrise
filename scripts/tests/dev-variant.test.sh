@@ -51,8 +51,9 @@ for s in ota.sh "release-apple.sh ios"; do
   [ -s "$LOG" ] && fail "DEV=1 $s reached the build Mac" "$(cat "$LOG")" || ok
   out=$(DEV=1 run "$C/scripts/"$s); rc=$?
   expect_status 2 $rc "DEV=1 scripts/$s with no build Mac set" "$out"
-  # Without DEV=1, the same fresh clone goes on to the usual checks (here: no signing set up).
-  out=$(MAC=nobody@example.invalid RELEASE_MAC=nobody@example.invalid run "$C/scripts/"$s); rc=$?
+  # Without DEV=1 (and with the App Store id), the same fresh clone goes on to the usual checks
+  # (here: no signing set up).
+  out=$(MAC=nobody@example.invalid RELEASE_MAC=nobody@example.invalid STORE_BUNDLE_ID=org.example.store run "$C/scripts/"$s); rc=$?
   expect_status 1 $rc "scripts/$s without DEV=1, in a fresh clone" "$out"
   expect_not_in "not the Dev app" "$out" "$s without DEV=1 isn't refused"
   expect_in "signs the app" "$out" "$s without DEV=1 reaches the signing check"
