@@ -5,112 +5,63 @@
 # this directly: sim_lock in scripts/common.sh sends it over ssh (before anything is copied there)
 # and keeps that ssh open while it holds the lock.
 #
-#   sim-lock.sh <wait seconds> <max age seconds> <who>
+#   sim-lock.sh <wait seconds> <who>
 #
-# It takes the lock (a folder, ~/.moonrise-sim-lock, made with mkdir, so taking it is atomic; it
-# holds the holder's PID, when it was taken and <who>), prints "locked", and holds it until its
-# stdin closes: when the run is done, is stopped (Ctrl-C) or its ssh connection drops. Then it
-# removes the lock, if it is still its own.
+# It takes the lock, prints "locked", and holds it until its stdin closes: when the run is done, is
+# stopped (Ctrl-C) or its ssh connection drops.
 #
-# A lock that is held waits, saying who holds it (on stderr), and gives up after <wait seconds>
-# (exit 1). A lock is stale, and taken over, when its holder's PID is no longer running, when it is
-# older than <max age seconds>, or when it has had no owner file for 30 s (a holder that died
-# while taking it). Bash 3.2 (macOS's own) is enough.
+# The lock is the kernel's: flock(2) on the file ~/.moonrise-sim-lock, through perl (macOS's own
+# has it; bash has no flock). The kernel gives it to one process at a time and takes it back when
+# that process ends, however it ends (even kill -9), so there is no stale lock to detect or take
+# over, and no moment in which two runs both hold it. The file itself stays; while the lock is held
+# it says who holds it (PID, when, <who>), only for the messages of the runs that wait.
+#
+# A run that finds it held waits, saying who holds it (on stderr, then every minute), and gives up
+# after <wait seconds> (exit 1). If its stdin closes while it waits (the run went away), it leaves.
+# Bash 3.2 (macOS's own) is enough. No single quotes in the perl below: it is in single quotes.
 set -u
-WAIT=${1:?usage: sim-lock.sh <wait seconds> <max age seconds> <who>}
-MAX_AGE=${2:?usage: sim-lock.sh <wait seconds> <max age seconds> <who>}
-WHO=${3:-a run}
-LOCK=$HOME/.moonrise-sim-lock
-ME=$$
-held=
-
-release() {
-  [ -n "$held" ] || return 0
-  held=
-  [ "$(sed -n 1p "$LOCK/owner" 2>/dev/null)" = "$ME" ] && rm -rf "$LOCK"
-  return 0
+WAIT=${1:?usage: sim-lock.sh <wait seconds> <who>}
+WHO=${2:-a run}
+exec perl -e '
+use strict;
+use warnings;
+use Fcntl qw(:flock);
+use IO::Handle;
+my ($wait, $who) = @ARGV;
+my $lock = "$ENV{HOME}/.moonrise-sim-lock";
+open(my $fh, "+>>", $lock) or die "error: cannot open $lock: $!\n";
+sub holder {
+  open(my $r, "<", $lock) or return "another run";
+  my @l = <$r>;
+  chomp @l;
+  return (defined $l[2] && $l[2] ne "") ? $l[2] : "another run";
 }
-trap release EXIT
-trap 'exit 129' HUP
-trap 'exit 130' INT
-trap 'exit 143' TERM
-
-take() {
-  mkdir "$LOCK" 2>/dev/null || return 1
-  printf '%s\n%s\n%s\n' "$ME" "$(date +%s)" "$WHO" > "$LOCK/owner.$ME" && mv "$LOCK/owner.$ME" "$LOCK/owner"
-  held=1
+my $start = time;
+my $said;
+until (flock($fh, LOCK_EX | LOCK_NB)) {
+  my $waited = time - $start;
+  if ($waited >= $wait) {
+    print STDERR "error: the build Mac\x27s simulators were still in use (" . holder() . ") after $wait s of waiting: giving up\n";
+    exit 1;
+  }
+  if (!defined $said || $waited - $said >= 60) {
+    print STDERR "waiting for the build Mac\x27s simulators: in use by " . holder() . " (waited $waited s, gives up after $wait s)\n";
+    $said = $waited;
+  }
+  my $rin = "";
+  vec($rin, fileno(STDIN), 1) = 1;
+  if (select(my $rout = $rin, undef, undef, 0.5) > 0) {
+    my $n = sysread(STDIN, my $buf, 4096);
+    exit 0 if !$n;
+  }
 }
-
-# stale: whether the lock there now is stale; says why on stderr, and sets stale_pid to its
-# holder's PID.
-no_owner_since=
-stale_pid=
-stale() {
-  local pid since who now
-  stale_pid=
-  now=$(date +%s)
-  if [ ! -f "$LOCK/owner" ]; then
-    [ -d "$LOCK" ] || return 1
-    [ -n "$no_owner_since" ] || no_owner_since=$now
-    if [ $((now - no_owner_since)) -ge 30 ]; then
-      echo "the simulator lock has had no owner for 30 s: taking it over" >&2
-      return 0
-    fi
-    return 1
-  fi
-  no_owner_since=
-  pid=$(sed -n 1p "$LOCK/owner"); since=$(sed -n 2p "$LOCK/owner"); who=$(sed -n 3p "$LOCK/owner")
-  stale_pid=$pid
-  if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then
-    echo "the simulator lock's holder ($who, PID $pid) is gone: taking it over" >&2
-    return 0
-  fi
-  if [ $((now - ${since:-0})) -ge "$MAX_AGE" ]; then
-    echo "the simulator lock ($who, PID $pid) is older than $MAX_AGE s: taking it over" >&2
-    return 0
-  fi
-  return 1
-}
-
-# closed: whether our stdin has closed (the run went away while waiting). It waits up to 3 s for a
-# line, so it is also the pause between tries. Bash 3.2's read returns 1 both on a timeout and at
-# the end of input; the end of input returns at once, a timeout after 3 s.
-closed() {
-  local t=$SECONDS line
-  read -r -t 3 line && return 1
-  [ $((SECONDS - t)) -lt 2 ]
-}
-
-start=$SECONDS
-said=
-while ! take; do
-  if stale; then
-    # Rename it away (atomic), then check it was the stale one seen and not a lock another waiter
-    # took over in between; that one goes back.
-    gone=$LOCK.stale.$ME
-    if mv "$LOCK" "$gone" 2>/dev/null; then
-      if [ "$(sed -n 1p "$gone/owner" 2>/dev/null)" = "$stale_pid" ]; then
-        rm -rf "$gone"
-      else
-        [ -d "$LOCK" ] || mv "$gone" "$LOCK" 2>/dev/null
-      fi
-    fi
-    continue
-  fi
-  waited=$((SECONDS - start))
-  if [ "$waited" -ge "$WAIT" ]; then
-    echo "error: the build Mac's simulators were still in use ($(sed -n 3p "$LOCK/owner" 2>/dev/null)) after $WAIT s of waiting: giving up" >&2
-    exit 1
-  fi
-  if [ -z "$said" ] || [ $((waited - said)) -ge 60 ]; then
-    echo "waiting for the build Mac's simulators: in use by $(sed -n 3p "$LOCK/owner" 2>/dev/null || echo 'another run') (waited ${waited} s, gives up after $WAIT s)" >&2
-    said=$waited
-  fi
-  if closed; then exit 0; fi
-done
-echo locked
-# Held until stdin closes.
-while :; do
-  read -r _ || break
-done
-release
+truncate($fh, 0);
+print $fh "$$\n" . time . "\n$who\n";
+$fh->flush;
+print "locked\n";
+STDOUT->flush;
+1 while sysread(STDIN, my $buf, 4096);
+truncate($fh, 0);
+close($fh);
+exit 0;
+' "$WAIT" "$WHO"
