@@ -18,3 +18,39 @@ pub fn write_executable(path: &Path, script: &str) {
         .unwrap();
     assert!(status.success(), "install: {status}");
 }
+
+/// A folder of a test's own under the system temp folder, removed when dropped.
+///
+/// Its name is unique to the process and the call, so tests running at once, in this process or
+/// in another sharing the temp folder (two checkouts, two containers), never share one.
+pub struct TempDir(std::path::PathBuf);
+
+impl TempDir {
+    pub fn new(name: &str) -> TempDir {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.subsec_nanos());
+        loop {
+            let n = NEXT.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!("moonrise-{name}-{}-{nanos}-{n}", std::process::id()));
+            // Taken (the same pid in another container sharing the folder): the next name.
+            match std::fs::create_dir(&path) {
+                Ok(()) => return TempDir(path),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(e) => panic!("{}: {e}", path.display()),
+            }
+        }
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}

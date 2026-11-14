@@ -544,8 +544,59 @@ fn fake_ffprobe(dir: &Path, probe: &Value) -> String {
 }
 
 async fn run_case(case: &Case, root: &Path) -> String {
-    let (result, db, d) = load_case(case, root).await;
+    let (mut result, db, d) = load_case(case, root).await;
+    if let Ok(m) = &mut result {
+        as_if_in_golden_root(m, &d, &format!("{GOLDEN_ROOT}/{}", case.name)).await;
+    }
     describe(result, db, d).await
+}
+
+/// The folder the goldens were made in. The file's path is part of the hashes `load` makes
+/// (`version`, `file_key`), but each run uses a folder of its own: two runs at once (two
+/// checkouts, two containers) must not share one.
+const GOLDEN_ROOT: &str = "/tmp/moonrise-load-golden";
+
+/// Makes `m`'s hashes again as if its file were in `golden` instead of `d`: the same functions
+/// `load` used, given the same inputs, with only the folder changed. A load that made them some
+/// other way fails here.
+async fn as_if_in_golden_root(m: &mut Media, d: &str, golden: &str) {
+    use super::{scan::Stamp, Container};
+    let item = m.item.clone();
+    let ms = &item.media_sources[0];
+    let mut there = ms.clone();
+    there.path = ms.path.as_ref().map(|p| p.replace(d, golden));
+
+    let flags = [Container::Avi, Container::Other]
+        .into_iter()
+        .flat_map(|c| [(c, false, false), (c, true, false), (c, false, true), (c, true, true)]);
+    let (container, late, replanned) = flags
+        .clone()
+        .find(|&(c, l, r)| Media::version_of(ms, c, l, r) == m.version)
+        .unwrap_or_else(|| panic!("version {} wasn't made by version_of", m.version));
+    let version = Media::version_of(&there, container, late, replanned);
+
+    // The stamp `load` saw: the library's, else the file's own.
+    let stamp = match (&ms.path, ms.stamp) {
+        (Some(p), Some((size, mtime))) => Some((p, size, mtime)),
+        (Some(p), None) => crate::storage::vfs::stat(p).await.ok().map(|s| (p, s.size, s.mtime)),
+        _ => None,
+    };
+    let key = |path: &str, size, mtime, ms, version: &str| {
+        let s = Stamp {
+            path: path.to_string(),
+            size,
+            mtime,
+        };
+        Media::file_key_of(Some(&s), &item, ms, version)
+    };
+    m.file_key = match stamp {
+        Some((p, size, mtime)) if m.file_key == key(p, size, mtime, ms, &m.version) => {
+            key(there.path.as_deref().unwrap(), size, mtime, &there, &version)
+        }
+        _ if m.file_key == Media::file_key_of(None, &item, ms, &m.version) => Media::file_key_of(None, &item, &there, &version),
+        _ => panic!("file_key {} wasn't made by file_key_of", m.file_key),
+    };
+    m.version = version;
 }
 
 /// Loads a case: the media, the database it used, and the case's folder.
@@ -670,17 +721,30 @@ async fn describe(result: anyhow::Result<Media>, db: Db, d: String) -> String {
 
 #[tokio::test]
 async fn load_golden() {
-    // A fixed folder: the file's path is part of the hashes `load` makes (`version`, `file_key`).
-    let root = std::path::PathBuf::from("/tmp/moonrise-load-golden");
-    let _ = std::fs::remove_dir_all(&root);
+    golden_run().await;
+}
+
+/// Every case, checked against its golden.
+async fn golden_run() {
+    // A folder of its own; the hashes are made as if it were `GOLDEN_ROOT` (`run_case`).
+    let root = crate::testutil::TempDir::new("load-golden");
     let mut all = String::new();
     for case in cases() {
-        let out = run_case(&case, &root).await;
+        let out = run_case(&case, root.path()).await;
         crate::golden::check(&format!("media_load/{}", case.name), &out);
         all.push_str(&out);
     }
-    let _ = std::fs::remove_dir_all(&root);
     assert!(!all.is_empty());
+}
+
+/// Two runs at once (two test processes sharing one temp folder) used the same fixed folder:
+/// each removed and rewrote the other's files, and both failed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_golden_runs_at_once_keep_to_their_own_folders() {
+    let runs: Vec<_> = (0..4).map(|_| tokio::spawn(golden_run())).collect();
+    for run in runs {
+        run.await.unwrap();
+    }
 }
 
 /// A title opened before the scan has probed its file has no bitrate in the library yet:
@@ -721,10 +785,8 @@ async fn a_title_opened_before_the_scan_probed_it_has_its_real_bitrate() {
         stamp: true,
         dbs: true,
     };
-    let root = std::path::PathBuf::from("/tmp/moonrise-load-bitrate");
-    let _ = std::fs::remove_dir_all(&root);
-    let (media, _, _) = load_case(&case, &root).await;
-    let _ = std::fs::remove_dir_all(&root);
+    let root = crate::testutil::TempDir::new("load-bitrate");
+    let (media, _, _) = load_case(&case, root.path()).await;
     let media = media.unwrap();
     let video = media.video.as_ref().unwrap();
     assert_eq!(video.bitrate, 12_140_071);
