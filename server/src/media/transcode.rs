@@ -1811,7 +1811,8 @@ pub(crate) mod tests {
 
     #[test]
     fn download_runs_yield_to_streams() {
-        let cache = Arc::new(Cache::new(std::env::temp_dir().join("moonrise-admit-dl-test"), 1 << 20));
+        let dir = crate::testutil::TempDir::new("admit-dl-test");
+        let cache = Arc::new(Cache::new(dir.path().to_path_buf(), 1 << 20));
         let t = Transcoder::new("ffmpeg".into(), cache, 1);
         let v = video("h264", 1920, 1080, 12_000_000, "SDR");
         let l = ladder(&v, true, true);
