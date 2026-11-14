@@ -15,7 +15,8 @@
 # It builds the Debug simulator app (its launch seams open the demo, a title, the player; release
 # builds have none) in its own copy on the Mac, ~/$SHOTS_DIR (default moonrise-store-shots), and
 # uses simulators of its own, "Moonrise Store <device>", made the first time (--delete removes them).
-# The player shots stream the films from their public hosts, so the Mac needs the internet.
+# The player shots stream the films from their public hosts, so the Mac needs the internet. It holds
+# the Mac's simulator lock while it runs (sim_lock in scripts/common.sh), as scripts/test-apple.sh does.
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 use_release_mac "${SHOTS_DIR:-moonrise-store-shots}"
@@ -24,6 +25,10 @@ OUT="$MOONRISE_ROOT/$APPLE_DIR/fastlane/screenshots"
 DELETE=; [ "${1:-}" = --delete ] && { DELETE=1; shift; }
 WHICH=${1:-all}
 case "$WHICH" in phone|ipad|tv) KINDS=$WHICH ;; all) KINDS="phone ipad tv" ;; *) echo "usage: $0 [--delete] [phone|ipad|tv|all]" >&2; exit 2 ;; esac
+
+# One run at a time on the Mac: the tests and other runs wait (sim_lock in common.sh).
+trap sim_unlock EXIT
+sim_lock "store-shots.sh $WHICH" || exit 1
 
 device_type() {
   case "$1" in

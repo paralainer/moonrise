@@ -16,7 +16,8 @@
 #   apple    scripts/build.sh sim and tvos: the iPhone and Apple TV simulator builds, on the build
 #            Mac in ~/$MAC_TEST_DIR (default moonrise-tests, as scripts/test-apple.sh), so they don't
 #            touch a folder you build in. Skipped (with a note) when no build Mac is set, it can't
-#            be reached or it is listed in PERSONAL_MACS; on a Mac itself they run locally (MAC=local)
+#            be reached or it is listed in PERSONAL_MACS; on a Mac itself they run locally (MAC=local).
+#            They hold the Mac's simulator lock, as test-apple.sh does (one run at a time)
 #   export   scripts/export-public.sh into a scratch folder (removed afterwards): the committed
 #            tree (HEAD) has no secrets or private details
 #
@@ -96,10 +97,19 @@ else
     echo "    can't reach the build Mac $mac: Apple builds not run"
     record "apple: simulator builds (Mac not reachable)" 3
   else
-    for p in sim tvos; do
-      MAC_DIR=$MAC_TEST_DIR "$ROOT/scripts/build.sh" "$p"
-      record "apple: build.sh $p" $?
-    done
+    # Under the Mac's simulator lock (sim_lock in common.sh), as test-apple.sh: they build in the
+    # same folder. Each build's exit code goes to a file, a line per platform.
+    rcs=$(mktemp "${TMPDIR:-/tmp}/moonrise-check-apple.XXXXXX")
+    bash -c '. "$1/scripts/common.sh" 2>/dev/null; trap sim_unlock EXIT
+sim_lock "check.sh Apple builds" || exit 1
+for p in sim tvos; do MAC_DIR=$2 "$1/scripts/build.sh" "$p"; echo "$p $?" >> "$3"; done' _ "$ROOT" "$MAC_TEST_DIR" "$rcs"
+    rc=$?
+    if [ -s "$rcs" ]; then
+      while read -r p prc; do record "apple: build.sh $p" "$prc"; done < "$rcs"
+    else
+      record "apple: simulator builds (the Mac's simulator lock)" "$([ $rc -eq 0 ] && echo 1 || echo $rc)"
+    fi
+    rm -f "$rcs"
   fi
 fi
 

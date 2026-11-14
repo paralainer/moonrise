@@ -87,9 +87,11 @@ expect_in "3 attempts" "$out" "test-apple.sh says it tried"
 [ "$(calls ssh)" = 3 ] && ok || fail "test-apple.sh: $(calls ssh) ssh calls, wanted 3"
 # A connection dropped mid-run: the stub answers `true`, but for the long command it prints the
 # start marker and some output, then the error OpenSSH gives when a session breaks (the same words
-# as a connection that never opened) and exits 255. The build/tests must run exactly once.
+# as a connection that never opened) and exits 255. The build/tests must run exactly once. The
+# simulator lock (sim_lock) is taken at once and held until stdin closes.
 cat > "$SCRATCH/bin/ssh" <<STUB
 #!/bin/bash
+case "\$*" in *" sim-lock "*) echo locked; cat >/dev/null; exit 0 ;; esac
 echo "ssh" >> "$SCRATCH/ssh-calls"
 [ "\${@: -1}" = true ] && exit 0
 echo "long: \${*:1:\$#-1}" >> "$SCRATCH/long-calls"   # one line a run: the options and host
