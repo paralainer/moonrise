@@ -87,6 +87,15 @@ mv "$C/clients/apple/fastlane/review_notes.txt" "$SCRATCH/notes"
 out=$(run check-metadata); rc=$?
 expect_status 1 $rc "no review notes" "$out"
 mv "$SCRATCH/notes" "$C/clients/apple/fastlane/review_notes.txt"
+cp "$C/clients/apple/fastlane/review_notes.txt" "$SCRATCH/notes"
+printf '%04000d' 0 > "$C/clients/apple/fastlane/review_notes.txt"
+out=$(run check-metadata); rc=$?
+expect_status 0 $rc "review notes of exactly 4000 characters" "$out"
+printf '%04001d' 0 > "$C/clients/apple/fastlane/review_notes.txt"
+out=$(run check-metadata); rc=$?
+expect_status 1 $rc "review notes of 4001 characters" "$out"
+expect_in "review_notes.txt has 4001 characters (limit 4000)" "$out" "says how long"
+mv "$SCRATCH/notes" "$C/clients/apple/fastlane/review_notes.txt"
 
 out=$(run next-build ios); rc=$?
 expect_status 0 $rc "next-build ios" "$out"

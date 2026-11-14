@@ -6,3 +6,5 @@ About the app (the questions Apple asks of new developer accounts):
 - Services: the app talks only to the user's own Moonrise server, on the local network or through the user's own Tailscale network. There is no account with the developer, no server run by the developer, no in-app purchase, no ads and no analytics. The demo streams its films from archive.org and download.blender.org.
 - Regions: all regions; the app is free.
 - The same app runs on iPhone, iPad, Mac and Apple TV (Mac: same demo, Try the Demo on the welcome window).
+
+Tailscale / VPN: the app is not a VPN and creates no device VPN (no NetworkExtension, packet tunnel or VPN configuration). It embeds the open-source Tailscale client library, off by default. When the user turns on Settings > Connect Through Tailscale and signs in to their own Tailscale account, only the app's own connections to the user's own Moonrise server go through it, so they can watch away from home. The developer collects no user information and shares nothing with third parties; Tailscale's coordination service is contacted under the user's own account, only while the option is on.

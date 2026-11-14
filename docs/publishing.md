@@ -90,6 +90,9 @@ asking for a screen recording on a physical Mac with the latest macOS, and for t
 audience, services and regions: the review notes
 (`clients/apple/fastlane/review_notes.txt`) answer the questions up front,
 and a recording may still be asked for. Rejection texts appear only in App Store Connect on the web.
+Apps with the embedded Tailscale library also get an automated "VPN functionality" question
+under 2.1: the review notes answer it up front (the app is not a VPN and creates no device VPN;
+Tailscale is off by default and carries only the app's own connections to the user's server).
 
 Export compliance: `ITSAppUsesNonExemptEncryption = false` is in Info.plist (standard HTTPS only).
 The server's setup page links to the App Store once there is a link: `APP_STORE_URL` in
