@@ -396,12 +396,12 @@ install_on_device() {
 # run from. Several at once made the 16 GB Mac swap until the app's timing tests failed.
 #
 # sim_lock <what>: takes the lock on $MAC, waiting (and saying so) while another run holds it, for
-# up to SIM_LOCK_WAIT seconds (default 5400). A lock whose holder is gone, or older than
-# SIM_LOCK_MAX_AGE seconds (default 14400), is taken over. The lock is held by an ssh session to
-# the Mac that stays open in the background: it is released when sim_unlock closes it, when this
-# script exits or is stopped (Ctrl-C), or when the connection drops. Returns 1 when it couldn't
+# up to SIM_LOCK_WAIT seconds (default 5400). The lock is held by an ssh session to the Mac that
+# stays open in the background: it is released when sim_unlock closes it, when this script exits
+# or is stopped (Ctrl-C), or when the connection drops. It is a kernel lock (flock) on the Mac, so
+# a run that dies, however it dies, leaves nothing stale behind. Returns 1 when it couldn't
 # take the lock (waited too long, or the Mac didn't answer). Uses file descriptor 9.
-SIM_LOCK_WAIT=${SIM_LOCK_WAIT:-5400}; SIM_LOCK_MAX_AGE=${SIM_LOCK_MAX_AGE:-14400}
+SIM_LOCK_WAIT=${SIM_LOCK_WAIT:-5400}
 SIM_LOCK_PID=; SIM_LOCK_TMP=
 # sq <text>: the text in single quotes, for a shell on the other side of ssh (sh, bash or zsh).
 sq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
@@ -412,7 +412,7 @@ sim_lock() {
   mkfifo "$SIM_LOCK_TMP/in" || return 1
   # Without its comments: the whole script goes on the ssh command line.
   code=$(grep -v '^ *#' "$MOONRISE_ROOT/scripts/sim-lock.sh") || return 1
-  ssh "${MAC_SSH_OPTS[@]}" "$MAC" "bash -c $(sq "$code") sim-lock $SIM_LOCK_WAIT $SIM_LOCK_MAX_AGE $(sq "$what from $(hostname 2>/dev/null || echo ?)")" \
+  ssh "${MAC_SSH_OPTS[@]}" "$MAC" "bash -c $(sq "$code") sim-lock $SIM_LOCK_WAIT $(sq "$what from $(hostname 2>/dev/null || echo ?)")" \
     < "$SIM_LOCK_TMP/in" > "$SIM_LOCK_TMP/out" &
   SIM_LOCK_PID=$!
   exec 9> "$SIM_LOCK_TMP/in"
