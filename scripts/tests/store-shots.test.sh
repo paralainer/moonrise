@@ -6,9 +6,13 @@
 # - with RELEASE_MAC, everything goes there, the build (scripts/build.sh) included, into the
 #   script's own folder, ~/moonrise-store-shots (SHOTS_DIR), even when mac.env sets MAC and MAC_DIR.
 # - the environment's RELEASE_MAC wins over mac.env's.
+# - the app is STORE_BUNDLE_ID, never the signing file's MOONRISE_BUNDLE_ID (the id device installs
+#   use): the build gets it and the simulator launches it; without it the shots are refused before
+#   reaching a Mac, and so is DEV=1.
 # The build Mac is a stub `ssh`/`rsync`/`scp` that logs each call.
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 C=$(fresh_clone)
+printf 'MOONRISE_BUNDLE_ID = org.example.device\nMOONRISE_DEVELOPMENT_TEAM = ABCDE12345\n' > "$C/clients/apple/Config/Signing.local.xcconfig"
 mkdir -p "$SCRATCH/bin"
 LOG="$SCRATCH/calls.log"; export LOG
 printf '#!/bin/bash\necho "rsync $*" >> "$LOG"\n' > "$SCRATCH/bin/rsync"
@@ -33,8 +37,8 @@ STUB
 chmod +x "$SCRATCH/bin/"*
 run() {
   rm -f "$LOG"; touch "$LOG"
-  env -u MAC -u FASTLANE_MAC -u TSKIT_MAC -u PERSONAL_MACS -u MAC_DIR -u MOONRISE_RELEASE_DIR \
-    RELEASE_MAC="${RELEASE_MAC-}" PATH="$SCRATCH/bin:$PATH" bash "$C/scripts/store-shots.sh" "$@" 2>&1
+  env -u MAC -u FASTLANE_MAC -u TSKIT_MAC -u PERSONAL_MACS -u MAC_DIR -u MOONRISE_RELEASE_DIR -u MOONRISE_STORE_BUILD \
+    RELEASE_MAC="${RELEASE_MAC-}" STORE_BUNDLE_ID="${STORE_BUNDLE_ID-org.example.store}" PATH="$SCRATCH/bin:$PATH" bash "$C/scripts/store-shots.sh" "$@" 2>&1
 }
 reached() { [ -s "$LOG" ]; }
 
@@ -66,6 +70,18 @@ expect_not_in "~/video-player" "$calls" "never mac.env's MAC_DIR"
 # Every call went to RELEASE_MAC: each ssh/scp/rsync call (a log line starting with its name) names it.
 others=$(grep -E '^(ssh|scp|rsync) ' "$LOG" | grep -v 'builder@192.168.1.65')
 [ -z "$others" ] && ok || fail "calls not to RELEASE_MAC" "$others"
+# The App Store app: built and launched as STORE_BUNDLE_ID, never the signing file's device id.
+expect_in "MOONRISE_BUNDLE_ID=org.example.store" "$(grep -A3 'xcodebuild build' "$LOG")" "the build is STORE_BUNDLE_ID (after the xcconfig)"
+expect_in "xcrun simctl launch 11111111-2222-3333-4444-555555555555 org.example.store" "$calls" "launches STORE_BUNDLE_ID"
+expect_not_in "org.example.device" "$calls" "never the signing file's device id"
+expect_not_in "org.example.device" "$out" "never the signing file's device id (output)"
+out=$(RELEASE_MAC=builder@192.168.1.65 STORE_BUNDLE_ID= run phone); rc=$?
+expect_status 1 $rc "shots without STORE_BUNDLE_ID" "$out"
+expect_in "set STORE_BUNDLE_ID in scripts/mac.env" "$out" "says what to set"
+reached && fail "without STORE_BUNDLE_ID it reached a Mac" "$(cat "$LOG")" || ok
+out=$(RELEASE_MAC=builder@192.168.1.65 DEV=1 run phone); rc=$?
+expect_status 2 $rc "shots with DEV=1" "$out"
+reached && fail "DEV=1 reached a Mac" "$(cat "$LOG")" || ok
 
 printf 'RELEASE_MAC=builder@192.168.1.65\n' >> "$C/scripts/mac.env"
 out=$(RELEASE_MAC= run --delete tv); rc=$?

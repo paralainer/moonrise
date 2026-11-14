@@ -10,6 +10,8 @@
 #   tv     Apple TV 4K (3rd generation) (3840 x 2160)   -> screenshots/appleTV/en-US/<n>-<name>.jpg
 #
 # The Mac's (2880 x 1800) are taken by hand on a Mac running macOS 26: the app needs it.
+# The app is the App Store one, STORE_BUNDLE_ID (scripts/mac.env or the environment), as
+# scripts/release-apple.sh uses; never MOONRISE_BUNDLE_ID, the id device installs use.
 # It runs on the release Mac, RELEASE_MAC, as scripts/release-apple.sh does (never MAC or FASTLANE_MAC,
 # which may name someone's own Mac; a host in PERSONAL_MACS is refused; scripts/common.sh).
 # It builds the Debug simulator app (its launch seams open the demo, a title, the player; release
@@ -20,11 +22,13 @@
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 use_release_mac "${SHOTS_DIR:-moonrise-store-shots}"
+no_dev scripts/store-shots.sh
 release_mac_ok || exit 1
 OUT="$MOONRISE_ROOT/$APPLE_DIR/fastlane/screenshots"
 DELETE=; [ "${1:-}" = --delete ] && { DELETE=1; shift; }
 WHICH=${1:-all}
 case "$WHICH" in phone|ipad|tv) KINDS=$WHICH ;; all) KINDS="phone ipad tv" ;; *) echo "usage: $0 [--delete] [phone|ipad|tv|all]" >&2; exit 2 ;; esac
+[ -n "$DELETE" ] || use_store_id scripts/store-shots.sh
 
 # One run at a time on the Mac: the tests and other runs wait (sim_lock in common.sh).
 trap sim_unlock EXIT
