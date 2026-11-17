@@ -17,7 +17,8 @@
 #            Mac in ~/$MAC_TEST_DIR (default moonrise-tests, as scripts/test-apple.sh), so they don't
 #            touch a folder you build in. Skipped (with a note) when no build Mac is set, it can't
 #            be reached or it is listed in PERSONAL_MACS; on a Mac itself they run locally (MAC=local).
-#            They hold the Mac's simulator lock, as test-apple.sh does (one run at a time)
+#            They hold the Mac's simulator lock, as test-apple.sh does (one run at a time). Then
+#            the built apps' background modes: audio on iOS, none on the Apple TV (background_modes_ok)
 #   export   scripts/export-public.sh into a scratch folder (removed afterwards): the committed
 #            tree (HEAD) has no secrets or private details
 #
@@ -102,10 +103,17 @@ else
     rcs=$(mktemp "${TMPDIR:-/tmp}/moonrise-check-apple.XXXXXX")
     bash -c '. "$1/scripts/common.sh" 2>/dev/null; trap sim_unlock EXIT
 sim_lock "check.sh Apple builds" || exit 1
-for p in sim tvos; do MAC_DIR=$2 "$1/scripts/build.sh" "$p"; echo "$p $?" >> "$3"; done' _ "$ROOT" "$MAC_TEST_DIR" "$rcs"
+for p in sim tvos; do
+  MAC_DIR=$2 "$1/scripts/build.sh" "$p"; rc=$?; echo "$rc build.sh $p" >> "$3"
+  [ $rc -eq 0 ] || continue
+  # Background modes of the built app (background_modes_ok): none on the Apple TV, audio on iOS.
+  case $p in sim) want=ios ;; *) want=tvos ;; esac
+  xml=$(ssh "${MAC_SSH_OPTS[@]}" "$MAC" "cd ~/$2 && plutil -convert xml1 -o - build-$p$BUILD_SUFFIX/Build/Products/Debug-*/Moonrise.app/Info.plist")
+  background_modes_ok "$want" "$xml"; echo "$? background modes of the $p build" >> "$3"
+done' _ "$ROOT" "$MAC_TEST_DIR" "$rcs"
     rc=$?
     if [ -s "$rcs" ]; then
-      while read -r p prc; do record "apple: build.sh $p" "$prc"; done < "$rcs"
+      while read -r prc what; do record "apple: $what" "$prc"; done < "$rcs"
     else
       record "apple: simulator builds (the Mac's simulator lock)" "$([ $rc -eq 0 ] && echo 1 || echo $rc)"
     fi

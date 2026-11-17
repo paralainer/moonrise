@@ -16,6 +16,8 @@
 # - the app is STORE_BUNDLE_ID, never the signing file's MOONRISE_BUNDLE_ID (the id device installs
 #   use): every fastlane call and a store build's archive get it; without it every command but
 #   check-metadata refuses before reaching a Mac; the environment's wins over mac.env's.
+# - a store build checks the archived app's background modes: an Apple TV build with any (App Review
+#   refuses background audio there), or an iOS one without audio, is refused and loses its export.
 # The build Mac is a stub `ssh` that answers as fastlane would.
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 C=$(fresh_clone)
@@ -32,10 +34,18 @@ echo "ssh $*" | tr '\n' ' ' >> "$LOG.calls"; echo >> "$LOG.calls"
 case "$*" in
   *"fastlane next_build"*) printf '\033[32m[12:00:00]: Latest upload\033[0m\nMOONRISE_LATEST_BUILD=41\n' ;;
   *"fastlane store_profiles"*) echo MOONRISE_PROFILE=ok ;;
+  *"plutil -convert xml1"*) cat "$STUB_PLIST" ;;
 esac
 exit 0
 STUB
 chmod +x "$SCRATCH/bin/"*
+# The archived app's Info.plist, as plutil prints it: iOS's background modes, the Apple TV's
+# (none), and an Apple TV one with background audio.
+plist() { printf '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0">\n<dict>\n\t<key>CFBundleName</key>\n\t<string>Moonrise</string>\n%s</dict>\n</plist>\n' "$1"; }
+plist $'\t<key>UIBackgroundModes</key>\n\t<array>\n\t\t<string>audio</string>\n\t\t<string>fetch</string>\n\t\t<string>processing</string>\n\t</array>\n' > "$SCRATCH/ios.plist"
+plist '' > "$SCRATCH/tvos.plist"
+cp "$SCRATCH/ios.plist" "$SCRATCH/tvos-audio.plist"
+export STUB_PLIST=$SCRATCH/ios.plist
 run() {
   rm -f "$LOG" "$LOG.calls"; touch "$LOG" "$LOG.calls"
   env -u MAC -u FASTLANE_MAC -u TSKIT_MAC -u PERSONAL_MACS -u MOONRISE_STORE_BUILD RELEASE_MAC="${RELEASE_MAC-builder@example.invalid}" \
@@ -129,6 +139,19 @@ expect_in "<key>org.example.store</key><string>org.example.store AppStore ios</s
 expect_in "<key>org.example.store.widgets</key>" "$calls" "and its extension's"
 expect_not_in "org.example.device" "$calls" "never the signing file's device id"
 expect_not_in "org.example.device" "$out" "never the signing file's device id (output)"
+expect_in "plutil -convert xml1 -o - build-release-ios/Moonrise.xcarchive/Products/Applications/Moonrise.app/Info.plist" "$calls" "reads the archived app's Info.plist"
+expect_not_in "rm -rf ~/moonrise-release/build-release-ios/export" "$calls" "an iOS build with background audio keeps its export"
+
+# The Apple TV store build declares no background modes (App Review refuses background audio
+# there): one that does is refused, and its export removed so `upload` has nothing to send.
+out=$(STUB_PLIST=$SCRATCH/tvos.plist ALLOW_DIRTY=1 run tvos); rc=$?
+expect_status 0 $rc "an Apple TV store build without background modes" "$out"
+out=$(STUB_PLIST=$SCRATCH/tvos-audio.plist ALLOW_DIRTY=1 run tvos); rc=$?
+expect_status 1 $rc "an Apple TV store build with background audio" "$out"
+expect_in "the Apple TV app declares background modes (audio fetch processing)" "$out" "says why"
+expect_in "rm -rf ~/moonrise-release/build-release-tvos/export" "$(cat "$LOG")" "removes its export"
+out=$(STUB_PLIST=$SCRATCH/tvos.plist ALLOW_DIRTY=1 run ios); rc=$?
+expect_status 1 $rc "an iOS store build without background audio" "$out"
 for c in status app ids builds "next-build ios" ios "metadata ios" "upload ios"; do
   out=$(STORE_BUNDLE_ID= run $c); rc=$?
   expect_status 1 $rc "$c without STORE_BUNDLE_ID" "$out"

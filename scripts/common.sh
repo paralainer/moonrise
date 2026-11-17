@@ -368,6 +368,29 @@ app_built() {
   ssh "$MAC" "cd ~/$MAC_DIR && p='$1/$2' && /usr/libexec/PlistBuddy -c 'Print CFBundleVersion' \"\$p\" && /usr/libexec/PlistBuddy -c 'Print MoonriseBuildStamp' \"\$p\"" | paste -sd' ' -
 }
 
+# background_modes_ok <ios|tvos> <a built app's Info.plist, as XML>: whether the app declares the
+# background modes its platform should; prints what is wrong (and returns 1) when it doesn't.
+# iOS: audio (background playback, Picture in Picture), fetch and processing (downloads). Apple TV:
+# none, as App Review refuses a tvOS app that declares background audio it doesn't play (project.yml
+# drops them from the tvOS build). On the Mac, `plutil -convert xml1 -o - <Info.plist>` gives the XML.
+background_modes_ok() {
+  local platform=$1 xml=$2 modes m
+  case "$xml" in *"<plist"*) ;; *) echo "error: $platform: no Info.plist to check" >&2; return 1 ;; esac
+  modes=$(printf '%s\n' "$xml" | awk '/<key>UIBackgroundModes<\/key>/ { f = 1; next } f && /<array\/>|<\/array>/ { exit } f' |
+    sed -n 's:.*<string>\(.*\)</string>.*:\1:p')
+  case "$platform" in
+    tvos)
+      [ -z "$modes" ] && return 0
+      echo "error: the Apple TV app declares background modes ($(paste -sd' ' - <<<"$modes")): App Review refuses an Apple TV app with background audio" >&2
+      return 1 ;;
+    ios)
+      for m in audio fetch processing; do
+        grep -qx "$m" <<<"$modes" || { echo "error: the iOS app doesn't declare background mode $m (it has: $(paste -sd' ' - <<<"${modes:-none}"))" >&2; return 1; }
+      done ;;
+    *) echo "error: background_modes_ok: platform ios or tvos, not '$platform'" >&2; return 2 ;;
+  esac
+}
+
 # install_on_device <device id> <name> <app path in MAC_DIR>: install the built app on a paired
 # device and check that the device took it. Exits 1 with devicectl's answer when it didn't: a
 # non-zero exit, an ERROR line, or no install record (databaseSequenceNumber) for this bundle id.

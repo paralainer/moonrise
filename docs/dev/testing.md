@@ -212,6 +212,7 @@ Past bugs and the tests that guard them. Add a row with every fix, saying what b
 | A device install script exited 0 when the install failed | `scripts/tests/deploy-install.test.sh` |
 | The pre-push hook let a push to `main` or a private detail through | `scripts/tests/git-hooks.test.sh` |
 | A missing personal patterns file was skipped without a word, also when `MOONRISE_PRIVATE_PATTERNS` named it | `scripts/tests/git-hooks.test.sh`, `scripts/tests/export-public.test.sh` |
+| App Review refused the Apple TV app for declaring background audio: the one Info.plist of the multi-platform app target listed iOS's `audio`, `fetch` and `processing` for tvOS too | `background-modes.test.sh` (`background_modes_ok`: an Apple TV plist with any background mode fails, an iOS one needs all three; `project.yml`'s "Apple TV: no background modes" build phase is there, acts on the Apple TV only and runs after the built Info.plist exists); `release-apple.test.sh` (a store build whose archived Apple TV app declares background modes, or iOS app lacks audio, is refused and its export removed); `check.sh` checks the simulator builds' plists the same way |
 
 ### Windows app
 
