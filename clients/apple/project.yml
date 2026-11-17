@@ -73,6 +73,28 @@ targets:
         "LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]": "$(inherited) @executable_path/../Frameworks"
         ENABLE_HARDENED_RUNTIME: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        # The Apple TV build phase below edits the built Info.plist, which the script sandbox
+        # forbids (a script may write only its declared outputs, and the plist is Xcode's own).
+        "ENABLE_USER_SCRIPT_SANDBOXING[sdk=appletv*]": NO
+    # One Info.plist serves every platform, but the Apple TV app plays nothing in the background and
+    # schedules no background tasks, and App Review refuses a tvOS app that declares background
+    # audio. So the tvOS build drops UIBackgroundModes and BGTaskSchedulerPermittedIdentifiers from
+    # its built Info.plist (before signing; every build, the App Store archive too). iOS keeps them.
+    # scripts/check.sh and scripts/release-apple.sh check the built plists (background_modes_ok).
+    postBuildScripts:
+      - name: "Apple TV: no background modes"
+        basedOnDependencyAnalysis: false
+        inputFiles:
+          - $(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)
+        script: |
+          case "$PLATFORM_NAME" in appletv*) ;; *) exit 0 ;; esac
+          plist="$TARGET_BUILD_DIR/$INFOPLIST_PATH"
+          for key in UIBackgroundModes BGTaskSchedulerPermittedIdentifiers; do
+            /usr/libexec/PlistBuddy -c "Delete :$key" "$plist" 2>/dev/null || true
+          done
+          if /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$plist" >/dev/null 2>&1; then
+            echo "error: $plist still has UIBackgroundModes" >&2; exit 1
+          fi
     info:
       path: Moonrise/Support/Info.plist
       properties:

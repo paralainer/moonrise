@@ -215,6 +215,12 @@ xcodebuild -exportArchive -archivePath $OUT/Moonrise.xcarchive -exportPath $OUT/
 f=\$(find $OUT/export -maxdepth 1 \( -name '*.ipa' -o -name '*.pkg' \) | head -1)
 [ -n \"\$f\" ] || { echo 'no .ipa or .pkg exported'; exit 1; }
 echo \"==> ~/$MAC_DIR/\$f (\$(du -h \"\$f\" | cut -f1))\""
+    # The archived app's background modes (background_modes_ok): none on the Apple TV, audio on
+    # iOS. A wrong one loses its export, so `upload` has nothing to send.
+    if [ "$P" != mac ]; then
+      XML=$(ssh "${MAC_SSH_OPTS[@]}" "$MAC" "cd ~/$MAC_DIR && plutil -convert xml1 -o - $OUT/Moonrise.xcarchive/Products/Applications/Moonrise.app/Info.plist") || XML=
+      background_modes_ok "$P" "$XML" || { ssh "${MAC_SSH_OPTS[@]}" "$MAC" "rm -rf ~/$MAC_DIR/$OUT/export"; echo "error: $P build refused (above); its export is removed" >&2; exit 1; }
+    fi
     echo "==> $P $VERSION ($BUILD) built; next: scripts/release-apple.sh upload $P" ;;
   validate|upload)
     P=$(platform "${1:-}")
