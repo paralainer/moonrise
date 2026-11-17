@@ -293,7 +293,8 @@ struct PlayerScreen: View {
             Color.black
             VideoSurface(model: model, fullBleed: !compact)
 
-            // Mac: the controls sit on the picture (`PictureFrame`), not on the bars beside it.
+            // Mac, in a window: the controls sit on the picture (`PictureFrame`), not on the bars
+            // beside it; full screen, they take the whole screen.
             let picture = controlsFrame(size)
             PictureSubtitleOverlay(cues: model.overlayPictures, canvas: model.pictureCanvas, videoSize: model.videoSize,
                                    fill: model.fill, controls: controlsShown ? subtitleControls(picture, compact: compact) : nil)
@@ -463,12 +464,12 @@ struct PlayerScreen: View {
         #endif
     }
 
-    /// Where the controls are drawn on a stage of `size`: on the Mac, the picture (a 4:3 episode
-    /// in a wide window keeps its scrubber and buttons on the video, not over the black bars);
-    /// elsewhere the whole stage.
+    /// Where the controls are drawn on a stage of `size`: on the Mac in a window, the picture (a
+    /// 4:3 episode in a wide window keeps its scrubber and buttons on the video, not over the black
+    /// bars); full screen and elsewhere the whole stage.
     private func controlsFrame(_ size: CGSize) -> CGRect {
         #if os(macOS)
-        return PictureFrame.controls(video: model.videoSize, in: size, fill: model.fill)
+        return PictureFrame.controls(video: model.videoSize, in: size, fill: model.fill, fullScreen: macFullScreen)
         #else
         return CGRect(origin: .zero, size: size)
         #endif
@@ -664,18 +665,19 @@ extension ControlsLayout {
     }
 }
 
-/// Where the controls go on the stage: on the video's picture, so a 4:3 episode in a wide
-/// window keeps its scrubber and buttons on the video rather than over the black bars beside it;
-/// never smaller than the controls fit in.
+/// Where the controls go on the stage: in a window, on the video's picture, so a 4:3 episode in a
+/// wide window keeps its scrubber and buttons on the video rather than over the black bars beside
+/// it, never smaller than the controls fit in; full screen, across the whole screen, the picture
+/// letterboxed underneath.
 enum PictureFrame {
     /// The least room the controls take (the page's small player's top and bottom rows).
     static let minControls = CGSize(width: 360, height: 200)
 
     /// The picture as it is drawn (`PictureLayout.videoRect`), widened or heightened about its
-    /// centre to `minControls` (as far as the stage goes) when it is smaller. Filling the stage,
-    /// or with the size not known yet (before the first frame): the whole stage.
-    static func controls(video: CGSize, in bounds: CGSize, fill: Bool) -> CGRect {
-        guard !fill, video.width > 0, video.height > 0 else { return CGRect(origin: .zero, size: bounds) }
+    /// centre to `minControls` (as far as the stage goes) when it is smaller. Full screen, filling
+    /// the stage, or with the size not known yet (before the first frame): the whole stage.
+    static func controls(video: CGSize, in bounds: CGSize, fill: Bool, fullScreen: Bool) -> CGRect {
+        guard !fullScreen, !fill, video.width > 0, video.height > 0 else { return CGRect(origin: .zero, size: bounds) }
         let r = PictureLayout.videoRect(video: video, canvas: .zero, in: bounds, fill: false)
         let w = min(bounds.width, max(r.width, minControls.width))
         let h = min(bounds.height, max(r.height, minControls.height))

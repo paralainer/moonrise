@@ -11,7 +11,7 @@ import Testing
     @Test func pillarboxedControlsSitOnThePicture() {
         let stage = CGSize(width: 1000, height: 350)
         let video = CGSize(width: 960, height: 720)
-        let controls = PictureFrame.controls(video: video, in: stage, fill: false)
+        let controls = PictureFrame.controls(video: video, in: stage, fill: false, fullScreen: false)
         let width: CGFloat = 350 * 4 / 3
         #expect(abs(controls.width - width) < 0.001 && controls.height == 350)
         #expect(abs(controls.minX - (1000 - width) / 2) < 0.001 && controls.minY == 0)
@@ -20,7 +20,7 @@ import Testing
     /// A wide film in a taller stage: letterboxed, the controls on the picture too.
     @Test func letterboxedControlsSitOnThePicture() {
         let stage = CGSize(width: 1470, height: 956)
-        let r = PictureFrame.controls(video: CGSize(width: 1920, height: 800), in: stage, fill: false)
+        let r = PictureFrame.controls(video: CGSize(width: 1920, height: 800), in: stage, fill: false, fullScreen: false)
         #expect(r.width == 1470)
         #expect(abs(r.height - 1470 * 800 / 1920) < 0.001)
         #expect(abs(r.midY - 478) < 0.001)
@@ -30,19 +30,31 @@ import Testing
     @Test func fillOrUnknownSizeIsTheWholeStage() {
         let stage = CGSize(width: 1000, height: 350)
         let whole = CGRect(origin: .zero, size: stage)
-        #expect(PictureFrame.controls(video: CGSize(width: 960, height: 720), in: stage, fill: true) == whole)
-        #expect(PictureFrame.controls(video: .zero, in: stage, fill: false) == whole)
+        #expect(PictureFrame.controls(video: CGSize(width: 960, height: 720), in: stage, fill: true, fullScreen: false) == whole)
+        #expect(PictureFrame.controls(video: .zero, in: stage, fill: false, fullScreen: false) == whole)
+    }
+
+    /// Full screen, the controls span the whole screen, not the picture: a wide film letterboxed
+    /// on a 16:10 screen, and a 4:3 episode pillarboxed, keep their top bar and scrubber at the
+    /// screen's edges.
+    @Test func fullScreenControlsSpanTheScreen() {
+        let screen = CGSize(width: 1728, height: 1117)
+        let whole = CGRect(origin: .zero, size: screen)
+        #expect(PictureFrame.controls(video: CGSize(width: 1920, height: 800), in: screen, fill: false, fullScreen: true) == whole)
+        #expect(PictureFrame.controls(video: CGSize(width: 960, height: 720), in: screen, fill: false, fullScreen: true) == whole)
+        // The same film in a window keeps the controls on the picture.
+        #expect(PictureFrame.controls(video: CGSize(width: 1920, height: 800), in: screen, fill: false, fullScreen: false) != whole)
     }
 
     /// A narrow picture never squeezes the controls below their room; it widens about the
     /// picture's centre, and never past the stage.
     @Test func neverNarrowerThanTheControlsFit() {
         let stage = CGSize(width: 800, height: 300)
-        let r = PictureFrame.controls(video: CGSize(width: 9, height: 16), in: stage, fill: false)
+        let r = PictureFrame.controls(video: CGSize(width: 9, height: 16), in: stage, fill: false, fullScreen: false)
         #expect(r.width == PictureFrame.minControls.width)
         #expect(r.midX == 400)
         #expect(r.height == 300)
-        let tiny = PictureFrame.controls(video: CGSize(width: 9, height: 16), in: CGSize(width: 300, height: 150), fill: false)
+        let tiny = PictureFrame.controls(video: CGSize(width: 9, height: 16), in: CGSize(width: 300, height: 150), fill: false, fullScreen: false)
         #expect(tiny == CGRect(x: 0, y: 0, width: 300, height: 150))
     }
 
@@ -50,7 +62,7 @@ import Testing
     /// the band of the bottom row (where the controls are drawn) still lifts the text above it.
     @Test func subtitlesLiftAboveTheBottomRowWithoutItsReport() throws {
         let stage = CGRect(x: 0, y: 0, width: 1000, height: 350)
-        let picture = PictureFrame.controls(video: CGSize(width: 960, height: 720), in: stage.size, fill: false)
+        let picture = PictureFrame.controls(video: CGSize(width: 960, height: 720), in: stage.size, fill: false, fullScreen: false)
         let insets = PlayerControls.rowInsets(compact: true)
         let layout = ControlsLayout().withBottomBand(of: picture, insets: insets)
         let band = try #require(layout.parts.first { $0.kind == .bottom })
