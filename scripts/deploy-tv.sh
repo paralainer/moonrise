@@ -9,6 +9,7 @@
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$DIR/scripts/common.sh"
+owner_install
 need_mac
 need_signing scripts/deploy-tv.sh
 need "$TV_DEVICE" "no Apple TV paired with $MAC (TV_DEVICE in scripts/mac.env)"

@@ -134,6 +134,28 @@ release_mac_ok() {
     return 1
   fi
 }
+# build_mac_ok [<user@host> [<setting>]]: builds, simulators, screenshots and installs may run on that
+# Mac (default MAC): it isn't listed in PERSONAL_MACS. Prints why not. need_mac checks it, so every
+# script that runs anything on MAC stops here, before any ssh or rsync. The one exception is an
+# owner install (owner_install below): the app itself, not DEV=1, onto a personal Mac's paired
+# devices or its /Applications.
+build_mac_ok() {
+  local mac=${1-$MAC} name=${2:-MAC}
+  if [ -z "$mac" ] || [ "$mac" = local ] || ! personal_mac "$mac"; then return 0; fi
+  if [ "$name" = MAC ] && [ "${MOONRISE_OWNER_INSTALL:-}" = 1 ] && [ "${DEV:-}" != 1 ]; then return 0; fi
+  echo "error: $name $mac is listed in PERSONAL_MACS: builds, simulators and tests don't run on a personal Mac (run with MAC=user@host, a build Mac). Installing the app itself there (without DEV=1) goes through scripts/deploy-mac.sh, deploy-phone.sh or deploy-tv.sh" >&2
+  return 1
+}
+# owner_install: for deploy-mac.sh, deploy-phone.sh and deploy-tv.sh. Installing the app itself
+# (not DEV=1) is how its owner gets a build, so it may use a personal Mac, the one their devices are
+# paired with; exported, so the build.sh it runs may too. With DEV=1 a personal Mac is refused.
+owner_install() {
+  [ "${DEV:-}" != 1 ] || return 0
+  export MOONRISE_OWNER_INSTALL=1
+  if [ -n "$MAC" ] && [ "$MAC" != local ] && personal_mac "$MAC"; then
+    echo "note: $MAC is a personal Mac (PERSONAL_MACS): installing the app itself there, an owner install" >&2
+  fi
+}
 # test_mac_ok: the app's tests (test-apple.sh, check.sh's Apple builds) may run on MAC: it isn't
 # listed in PERSONAL_MACS. Prints why not.
 test_mac_ok() {
@@ -268,6 +290,7 @@ need() {
 # For anything that runs on the build Mac.
 need_mac() {
   need "$MAC" "no build Mac: copy scripts/mac.env.example to scripts/mac.env and set MAC (or run with MAC=user@host); on a Mac itself the scripts build locally (MAC=local, the default there; docs/building.md)"
+  build_mac_ok || exit 1
 }
 
 # For steps that sign the app ($1 names the step): a bundle id of your own, and your team.
