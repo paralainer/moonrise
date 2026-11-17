@@ -9,6 +9,7 @@
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$DIR/scripts/common.sh"
+owner_install
 need_mac
 need_signing scripts/deploy-phone.sh
 if [ "${IPAD:-}" = 1 ]; then SETTING=IPAD_DEVICE; NAME="the iPad"; else SETTING=PHONE_DEVICE; NAME="the iPhone"; fi
