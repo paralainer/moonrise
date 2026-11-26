@@ -242,6 +242,12 @@ final class PlayerModel {
     @ObservationIgnored var lastTick: Double = -1
     @ObservationIgnored var probing = false
     @ObservationIgnored var lastProbe = Date.distantPast
+    /// When the session's playlist last answered a check (the server is there).
+    @ObservationIgnored var lastAnswered = Date.distantPast
+    /// When the current stall began, and the bytes the item had fetched then (`SlowLinkRules`).
+    @ObservationIgnored var stallMark: (at: Date, bytes: Int64?)?
+    /// Stalls that reopened the same stream although its session answered (`SlowLinkRules`).
+    @ObservationIgnored var answeredRestarts = 0
     /// The last stream request the server refused (status, address): asked again for its answer's
     /// text when recovery gives up, to say why.
     @ObservationIgnored var lastStreamError: (status: Int, uri: String)?

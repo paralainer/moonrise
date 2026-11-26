@@ -119,4 +119,45 @@ class StreamRecoveryTest {
         assertNull(t.next(everReady = true, decoder = true))
         assertEquals(1, t.count)
     }
+
+    // A stall while the session answers and data arrives slower than the stream needs: down a
+    // quality (or "too slow"), never the same stream again, which throws away what had arrived.
+    private val p720 = Quality.of("720p · 4 Mbps")
+    private val p480 = Quality.of("480p · 1.5 Mbps")
+    /** A 1080p film at 8 Mbit/s: Original, 720p, 480p. */
+    private val film = Quality.options(8_000_000, 1080)
+
+    private fun slow(answered: Boolean = true, measured: Double?, needed: Double? = 8e6, restarts: Int = 0, current: Quality = Quality.original) =
+        SlowLink.action(answered, measured, needed, restarts, current, film, 8_000_000)
+
+    @Test
+    fun originalOverALinkSlowerThanTheFileGoesDownAQuality() {
+        assertEquals(SlowLink.Action.Lower(p480), slow(measured = 4.8e6))
+        assertEquals(SlowLink.Action.Lower(p720), slow(measured = 7e6))
+    }
+
+    @Test
+    fun aDeadConnectionOrAGoneServerOpensTheSameStreamAgain() {
+        assertEquals(SlowLink.Action.Restart, slow(measured = 0.0))
+        assertEquals(SlowLink.Action.Restart, slow(answered = false, measured = 4.8e6))
+        assertEquals(SlowLink.Action.Restart, slow(measured = 9e6))
+    }
+
+    @Test
+    fun withoutAMeasureTheSecondAnsweredStallGoesDown() {
+        assertEquals(SlowLink.Action.Restart, slow(measured = null, restarts = 0))
+        assertEquals(SlowLink.Action.Lower(p720), slow(measured = null, restarts = 1))
+        assertEquals(SlowLink.Action.Lower(p720), slow(measured = null, needed = null, restarts = 1))
+    }
+
+    @Test
+    fun nothingLowerSaysTheConnectionIsTooSlow() {
+        assertEquals(SlowLink.Action.TooSlow, slow(measured = 6e5, needed = 1.5e6, current = p480))
+    }
+
+    @Test
+    fun aLinkTooSlowForEveryQualityTakesTheLowest() {
+        assertEquals(SlowLink.Action.Lower(p480), slow(measured = 1e6))
+        assertEquals(SlowLink.Action.Lower(p480), slow(measured = 2e6, needed = 4e6, current = p720))
+    }
 }
