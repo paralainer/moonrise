@@ -86,6 +86,11 @@ final class DownloadManager: NSObject {
         if let data = try? Data(contentsOf: indexURL),
            let decoded = try? JSONDecoder().decode([DownloadRecord].self, from: data) {
             records = decoded
+            // Only with the index read: unread (locked device, damaged file), every folder would
+            // look like nobody's.
+            for dir in Self.orphanFolders(in: root, keeping: Set(decoded.map(\.id))) {
+                try? FileManager.default.removeItem(at: dir)
+            }
         }
         // Kinds only older versions made (HLS packages, file-share copies): gone, with
         // their files.
@@ -459,7 +464,17 @@ final class DownloadManager: NSObject {
         workChanged()
     }
 
-    private func removeFiles(of rec: DownloadRecord) {
+    /// Download folders no record names (a delete an earlier version raced, a crash): their space
+    /// would never come back.
+    nonisolated static func orphanFolders(in root: URL, keeping ids: Set<UUID>) -> [URL] {
+        let entries = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
+        return entries.filter { url in
+            guard let id = UUID(uuidString: url.lastPathComponent), !ids.contains(id) else { return false }
+            return (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+        }
+    }
+
+        private func removeFiles(of rec: DownloadRecord) {
         if let url = rec.localURL { try? FileManager.default.removeItem(at: url) }
         try? FileManager.default.removeItem(at: root.appendingPathComponent(rec.id.uuidString))
     }

@@ -179,4 +179,85 @@ struct SegmentedDownloadsTests {
         #expect(again.seconds == 4)
         #expect(again.waiting)
     }
+
+    @Test func aDownloadDeletedWhileAFileIsInFlightLeavesNoFolder() async throws {
+        // A segment is on its way when the viewer deletes the download. It must not make the
+        // download's folder again when it arrives (the space would never come back).
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [HeldResponse.self]
+        let downloads = SegmentedDownloads(root: root, session: URLSession(configuration: config))
+        var rec = DownloadRecord(kind: .segments, title: "Test", sourceId: UUID(), qualityLabel: "480p", fileExtension: "mp4")
+        rec.setBase = "/v1/items/abc/offline/h264-854x480-1500k"
+        let client = MoonriseClient(sourceId: nil, baseURL: URL(string: "http://192.168.1.10:8097")!, token: "fake-token")
+        let folder = root.appendingPathComponent(rec.id.uuidString)
+        try FileManager.default.createDirectory(at: downloads.hlsDirectory(rec.id), withIntermediateDirectories: true)
+        HeldResponse.reset()
+
+        let fetch = Task { try await downloads.fetch(rec, "video/7.m4s", client: client, base: client.baseURL) }
+        try await HeldResponse.waitForRequest()
+        // Delete, as DownloadManager.delete does it.
+        downloads.forget(rec.id)
+        try FileManager.default.removeItem(at: folder)
+        // The request is cancelled; were it not, its answer arrives now.
+        let cancelled = await HeldResponse.waitForCancel()
+        HeldResponse.release()
+        _ = try? await fetch.value
+
+        #expect(cancelled)
+        #expect(!FileManager.default.fileExists(atPath: folder.path))
+    }
+
+    @Test func foldersNoDownloadNamesAreFoundAtLaunch() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let kept = UUID(), left = UUID()
+        let fm = FileManager.default
+        for d in [kept, left] { try fm.createDirectory(at: root.appendingPathComponent("\(d.uuidString)/hls"), withIntermediateDirectories: true) }
+        try fm.createDirectory(at: root.appendingPathComponent("other"), withIntermediateDirectories: true)
+        try Data("[]".utf8).write(to: root.appendingPathComponent("index.json"))
+        try Data().write(to: root.appendingPathComponent(UUID().uuidString))
+
+        let orphans = DownloadManager.orphanFolders(in: root, keeping: [kept])
+        #expect(orphans.map(\.lastPathComponent) == [left.uuidString])
+    }
+}
+
+/// A server that holds its answer until the test lets it go (`release`).
+private final class HeldResponse: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var current: HeldResponse?
+    nonisolated(unsafe) private static var stopped = false
+
+    static func reset() { lock.withLock { current = nil; stopped = false } }
+    static func waitForCancel() async -> Bool {
+        for _ in 0..<100 {
+            if lock.withLock({ stopped }) { return true }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return false
+    }
+
+    static func waitForRequest() async throws {
+        for _ in 0..<200 {
+            if lock.withLock({ current != nil }) { return }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        throw URLError(.timedOut)
+    }
+
+    /// The answer arrives (unless the request was cancelled meanwhile).
+    static func release() {
+        guard let p = lock.withLock({ stopped ? nil : current }) else { return }
+        let resp = HTTPURLResponse(url: p.request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
+        p.client?.urlProtocol(p, didReceive: resp, cacheStoragePolicy: .notAllowed)
+        p.client?.urlProtocol(p, didLoad: Data(repeating: 1, count: 1024))
+        p.client?.urlProtocolDidFinishLoading(p)
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() { Self.lock.withLock { Self.current = self } }
+    override func stopLoading() { Self.lock.withLock { Self.stopped = true } }
 }
