@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import app.moonrise.core.DownloadBadge
 import app.moonrise.core.DownloadRecord
+import app.moonrise.core.DownloadRetry
 import app.moonrise.core.DownloadRules
 import app.moonrise.core.DownloadState
 import app.moonrise.core.Item
@@ -159,10 +160,11 @@ object Downloads {
     private fun reachable(rec: DownloadRecord): Boolean = ServerReach.canReach(rec.serverId)
 
     private suspend fun run(id: String) {
-        var backoff = 2000L
+        val retry = DownloadRetry()
         while (kotlin.coroutines.coroutineContext.isActive) {
             val rec = record(id) ?: return
             if (rec.state != DownloadState.Downloading && rec.state != DownloadState.Queued) return
+            val before = done[id]?.size ?: 0
             try {
                 step(id)
                 jobsDone(id)
@@ -174,22 +176,25 @@ object Downloads {
                     jobsDone(id)
                     return
                 }
-                wait(id, e.message, backoff)
+                wait(id, e.message, retry.failed(progressed = (done[id]?.size ?: 0) > before))
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                wait(id, e.message, backoff)
+                wait(id, e.message, retry.failed(progressed = (done[id]?.size ?: 0) > before))
             }
-            backoff = minOf(backoff * 2, 15_000)
         }
     }
 
-    private suspend fun wait(id: String, why: String?, backoff: Long) {
-        Log.i(TAG) { "${record(id)?.title}: waiting ($why), again in ${backoff / 1000} s" }
-        updateMain(id) { it.copy(error = if (cellularBlocked()) "Waiting for Wi-Fi…" else "Waiting for the server…") }
+    private suspend fun wait(id: String, why: String?, wait: DownloadRetry.Wait) {
+        Log.i(TAG) { "${record(id)?.title}: waiting ($why), again in ${wait.millis / 1000} s" }
+        if (wait.waiting) updateMain(id) { it.copy(error = if (cellularBlocked()) "Waiting for Wi-Fi…" else "Waiting for the server…") }
         ServerReach.nudge()
-        delay(backoff)
+        delay(wait.millis)
     }
+
+    /** Fetches a file of a segment or an init section, trying again at once after a transient failure. */
+    private suspend fun fetchRetrying(rec: DownloadRecord, api: MoonriseApi, path: String) =
+        DownloadRetry.file(retryable = { it !is Failure || !it.permanent }) { fetch(rec, api, path) }
 
     private fun jobsDone(id: String) {
         Session.main.post { jobs.remove(id); onWorkChanged(); startNext() }
@@ -211,7 +216,7 @@ object Downloads {
         updateMain(id) { it.copy(state = DownloadState.Downloading, error = null) }
         val count = rec.segmentCount ?: return
         val tracks = DownloadRules.tracks(rec)
-        for (t in tracks) if (!exists(id, "$t/init.mp4")) fetch(rec, api, "$t/init.mp4")
+        for (t in tracks) if (!exists(id, "$t/init.mp4")) fetchRetrying(rec, api, "$t/init.mp4")
         // Subtitles: one file per track, made by the server from the whole title.
         val subs = scope.launch {
             for (s in rec.subtitleTracks.orEmpty()) if (!exists(id, "subs/$s/cues.vtt")) runCatching { fetch(rec, api, "subs/$s/cues.vtt", timeoutSeconds = 900) }
@@ -230,7 +235,7 @@ object Downloads {
                         val n = synchronized(claimed) {
                             DownloadRules.nextSegment(complete(rec), claimed, from(id, rec), count)?.also { claimed += it }
                         } ?: break
-                        for (t in tracks) if (!exists(id, "$t/$n.m4s")) fetch(rec, api, "$t/$n.m4s")
+                        for (t in tracks) if (!exists(id, "$t/$n.m4s")) fetchRetrying(rec, api, "$t/$n.m4s")
                         segmentComplete(id, n, count)
                         if (record(id)?.state != DownloadState.Downloading) throw CancellationException("no longer downloading")
                     }

@@ -635,3 +635,59 @@ class PlayerPosition {
         const val BEHIND = 5
     }
 }
+
+/**
+ * How a download rides out a bad link, as the iPhone's (`SegmentedDownloads.Retry`). A file that
+ * fails is tried again at once, a couple of times, while the other segments go on (a dropped
+ * connection costs a moment, not the run). Only when that fails too does the whole run wait, and
+ * the wait grows only while nothing gets through: after segments arrived it starts again from the
+ * shortest, and the row says "Waiting for the server…" only from a second failure in a row with
+ * nothing in between.
+ */
+class DownloadRetry {
+    private var wait = SHORTEST
+    private var failedInARow = 0
+
+    /** How long the run waits (ms), and whether the viewer is told it waits for the server. */
+    data class Wait(val millis: Long, val waiting: Boolean)
+
+    /** The run failed; [progressed]: segments arrived since the run started or last failed. */
+    fun failed(progressed: Boolean): Wait {
+        if (progressed) {
+            wait = SHORTEST
+            failedInARow = 0
+        }
+        failedInARow += 1
+        val millis = wait
+        wait = minOf(wait * 2, LONGEST)
+        return Wait(millis, failedInARow > 1)
+    }
+
+    companion object {
+        /** Tries of one file, and the pauses before the second and the third (ms). */
+        const val FILE_TRIES = 3
+        val FILE_PAUSES = listOf(500L, 1500L)
+        const val SHORTEST = 2_000L
+        const val LONGEST = 15_000L
+
+        /** Runs [fetch], trying again after a failure [retryable] says is transient ([FILE_TRIES] in all). */
+        suspend fun <T> file(
+            retryable: (Throwable) -> Boolean,
+            pause: suspend (Long) -> Unit = { kotlinx.coroutines.delay(it) },
+            fetch: suspend () -> T,
+        ): T {
+            var tries = 1
+            while (true) {
+                try {
+                    return fetch()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (tries >= FILE_TRIES || !retryable(e)) throw e
+                    pause(FILE_PAUSES[minOf(tries - 1, FILE_PAUSES.size - 1)])
+                    tries += 1
+                }
+            }
+        }
+    }
+}
