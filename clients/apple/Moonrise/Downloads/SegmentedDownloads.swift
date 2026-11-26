@@ -275,7 +275,7 @@ final class SegmentedDownloads {
         }
     }
 
-    static let waitingForWiFiText = "Waiting for Wi-Fi…"
+    nonisolated static let waitingForWiFiText = "Waiting for Wi-Fi…"
 
     /// Describe the set (once), then fetch what is missing. Returns when complete.
     private func step(_ id: UUID) async throws {

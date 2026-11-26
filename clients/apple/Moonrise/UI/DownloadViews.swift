@@ -45,12 +45,7 @@ struct DownloadedTag: View {
         let text: String? = if item.isSeries {
             manager.seriesCounts[item.id].map { $0 == 1 ? "1 episode downloaded" : "\($0) episodes downloaded" }
         } else {
-            switch manager.badges[item.id] {
-            case .downloaded?: "Downloaded"
-            case let .downloading(p)?: "Downloading \(p) %"
-            case .queued?, .paused?: "Download waiting"
-            case .failed?, nil: nil
-            }
+            manager.badges[item.id].flatMap(DownloadStatusText.tag)
         }
         if let text {
             Label(text, systemImage: "arrow.down.circle.fill").labelStyle(.titleAndIcon)
@@ -83,6 +78,12 @@ struct DownloadStateIcon: View {
                 }
                 .frame(width: size, height: size)
                 .accessibilityLabel("Downloading, \(p) percent")
+            case let .waiting(_, reason):
+                Image(systemName: "clock.fill")
+                    .font(.system(size: size))
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.black, .white.opacity(0.8))
+                    .accessibilityLabel("Download waiting: \(reason)")
             case .queued, .paused:
                 Image(systemName: badge == .paused ? "pause.circle.fill" : "clock.fill")
                     .font(.system(size: size))
@@ -101,20 +102,15 @@ struct DownloadStateIcon: View {
     }
 }
 
-/// "Downloaded · 480p" / "Downloading 34 %" under a title page's Play row, at the text's left edge.
+/// "Downloaded · 480p" / "Downloading 34 %" / "Download waiting at 34 %: Tailscale is off" under a title page's Play row, at the text's left edge.
 struct DownloadStatusLine: View {
     let item: MediaItem
     private var manager: DownloadManager { DownloadManager.shared }
 
     var body: some View {
         if let r = manager.record(forItem: item.id) {
-            let text: String = switch r.state {
-            case .completed: "Downloaded · \(r.downloadLabel)"
-            case .downloading: "Downloading \(Int(r.progress * 100)) %"
-            case .queued: "Download waiting"
-            case .paused: "Download paused at \(Int(r.progress * 100)) %"
-            case .failed: "Download failed: \(r.error ?? "")"
-            }
+            let text = DownloadStatusText.pageLine(state: r.state, progress: r.progress, error: r.error,
+                                                   waitReason: manager.waitReason(r), downloadLabel: r.downloadLabel)
             Label(text, systemImage: r.state == .failed ? "exclamationmark.circle" : "arrow.down.circle")
                 .font(.footnote)
                 .foregroundStyle(Theme.secondaryText)
@@ -133,9 +129,13 @@ struct OfflineBanner: View {
     @State private var retrying = false
 
     var body: some View {
+        let router = ConnectionRouter.shared
         HStack(spacing: 12) {
-            Image(systemName: "wifi.slash")
-            Text("Offline: showing downloads").font(.subheadline.weight(.semibold))
+            Image(systemName: router.isOnline ? "server.rack" : "wifi.slash")
+            Text(DownloadStatusText.offlineBanner(isOnline: router.isOnline,
+                                                  serverName: SourceStore.shared.server?.name ?? "the server"))
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
             Spacer(minLength: 8)
             if let retry {
                 Button {
@@ -229,7 +229,10 @@ struct DownloadCard: View {
             }
             .clipShape(RoundedRectangle(cornerRadius: landscape ? 16 : 12, style: .continuous))
             .overlay(alignment: .topLeading) {
-                DownloadStateIcon(badge: record.state == .completed ? .downloaded : .downloading(Int(record.progress * 100))).padding(5)
+                DownloadStateIcon(badge: record.state == .completed ? .downloaded
+                                  : DownloadStatusText.badge(state: .downloading, progress: record.progress,
+                                                             waitReason: DownloadManager.shared.waitReason(record)))
+                    .padding(5)
             }
             #if os(tvOS)
             .lockupArtwork()

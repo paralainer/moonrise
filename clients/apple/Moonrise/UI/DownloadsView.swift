@@ -149,15 +149,20 @@ struct DownloadsView: View {
         default:
             VStack(alignment: .leading, spacing: 4) {
                 ProgressView(value: r.progress).tint(Theme.accent)
-                Text(r.state == .paused ? "Paused · \(Int(r.progress * 100))%" :
-                     r.state == .queued ? "Waiting…" :
-                     r.isSegmented && r.error != nil ? "\(r.error!) · \(Int(r.progress * 100))%" :
-                     r.isSegmented && r.isPlayable ? "\(Int(r.progress * 100))% · \(Fmt.bytes(r.bytesWritten)) · Tap to play now" :
-                     r.preparing == true ? "Preparing on the server · \(Int(r.progress * 100))%" :
-                     r.bytesExpected > 0 ? "\(Fmt.bytes(r.bytesWritten)) of \(Fmt.bytes(r.bytesExpected))" : "\(Int(r.progress * 100))%")
+                Text(progressText(r))
                     .font(.caption).foregroundStyle(Theme.secondaryText)
             }
         }
+    }
+
+    private func progressText(_ r: DownloadRecord) -> String {
+        let p = Int(r.progress * 100)
+        if r.state == .paused { return "Paused · \(p)%" }
+        if r.state == .queued { return "Waiting…" }
+        if let reason = manager.waitReason(r) { return "\(reason) · \(p)%" }
+        if r.isSegmented && r.isPlayable { return "\(p)% · \(Fmt.bytes(r.bytesWritten)) · Tap to play now" }
+        if r.preparing == true { return "Preparing on the server · \(p)%" }
+        return r.bytesExpected > 0 ? "\(Fmt.bytes(r.bytesWritten)) of \(Fmt.bytes(r.bytesExpected))" : "\(p)%"
     }
 
     @ViewBuilder private func controls(_ r: DownloadRecord) -> some View {
