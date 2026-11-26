@@ -10,7 +10,7 @@ import Testing
         let names = DebugSeams.Key.allCases.map(\.rawValue)
         #expect(names.allSatisfy { $0.hasPrefix("MOONRISE_") })
         #expect(Set(names).count == names.count)
-        #expect(names.count == 42)
+        #expect(names.count == 43)
     }
 
     @Test func flagsAreOnOnlyAsOne() {

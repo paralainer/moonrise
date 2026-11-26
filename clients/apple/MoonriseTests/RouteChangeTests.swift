@@ -371,6 +371,30 @@ import Testing
         }
     }
 
+    /// Browsing, not playing: the home address stops answering with the device's network unchanged
+    /// (no path event). A request that can't get through makes the router look again, and it moves.
+    @Test func browsing_homeStopsAnswering_movesToTailnet() async throws {
+        let run = try await Run(start: 0, startOnTailnet: false)
+        do {
+            let router = ConnectionRouter.shared
+            #expect(router.route == .lan)
+            run.home.set(.refused)
+            let client = try #require(SourceStore.shared.server.flatMap { MoonriseClient.for($0) })
+            await #expect(throws: (any Error).self) { _ = try await client.libraries() }
+            let began = TestWatch()
+            while began.elapsed < 15, router.route == .lan {
+                try await Task.sleep(for: .milliseconds(100))
+            }
+            #expect(router.route == .tailnet(host: "fake"), "still \(String(describing: router.route)) after \(began.elapsed) s")
+            // And the next request goes over it.
+            #expect((try? await client.info()) != nil)
+            await run.finish()
+        } catch {
+            await run.finish()
+            throw error
+        }
+    }
+
     /// The tailnet path isn't back yet when home goes away (its node has to find a way out).
     @Test func tailnetLate() async throws {
         try await scenario(startOnTailnet: false, cut: .hung, event: true, within: 45, tailnetDownFor: 25, maxSpinner: 30)

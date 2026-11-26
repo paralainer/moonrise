@@ -25,7 +25,8 @@
 # Seams for launch (DebugSeams.swift): DL=<item>[:<bits/s>] PLAYDL=<item> DELDL=<item>
 # AUTOPLAY=<item> AT= QUALITY= SEEK= PAUSE= GIVEUP= OPEN=<item> PIN=1 CELL=1 (pretend cellular)
 # TSKEY_FILE=<chmod 600 file with a Tailscale auth key> (sign the embedded node in and turn it on)
-# AWAY=1 (treat the LAN as unreachable). MANAGE=<screen>.
+# AWAY=1 (treat the LAN as unreachable). FAKE_TAILNET=<host:port> (that address stands in for the
+# tailnet route: a second gate channel, no Tailscale needed). MANAGE=<screen>.
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 SIM=${SIM:-$SIM_PHONE}
@@ -68,7 +69,7 @@ case "$cmd" in
       for kv in "AUTODOWNLOAD=${DL:-}" "PLAY_DOWNLOAD=${PLAYDL:-}" "DELETE_DOWNLOAD=${DELDL:-}" "AUTOPLAY=${AUTOPLAY:-}" \
         "AUTOPLAY_AT=${AT:-}" "AUTOPLAY_QUALITY=${QUALITY:-}" "AUTOPLAY_SEEK=${SEEK:-}" "AUTOPLAY_PAUSE=${PAUSE:-}" \
         "RECOVERY_GIVEUP=${GIVEUP:-}" "OPEN_ITEM=${OPEN:-}" "PIN_CONTROLS=${PIN:-}" "FORCE_CELLULAR=${CELL:-}" \
-        "FORCE_TAILNET=${AWAY:-}" "MANAGE=${MANAGE:-}"; do
+        "FORCE_TAILNET=${AWAY:-}" "FAKE_TAILNET=${FAKE_TAILNET:-}" "MANAGE=${MANAGE:-}"; do
         seams+=" SIMCTL_CHILD_MOONRISE_$kv"
       done
     fi

@@ -105,7 +105,14 @@ final class MoonriseClient: @unchecked Sendable {
             req.httpBody = try JSONSerialization.data(withJSONObject: body)
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
-        let (data, code) = try await HTTP.data(for: req, on: session)
+        let data: Data, code: Int
+        do {
+            (data, code) = try await HTTP.data(for: req, on: session)
+        } catch {
+            // The signed-in server's route may have died with the network unchanged: let the router know.
+            if sourceId != nil { Task { @MainActor in ConnectionRouter.shared.requestFailed(error) } }
+            throw error
+        }
         guard (200..<300).contains(code) else {
             throw MoonriseClientError.http(code, String(decoding: data.prefix(300), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
         }
