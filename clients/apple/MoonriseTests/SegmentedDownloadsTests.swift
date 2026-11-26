@@ -209,6 +209,49 @@ struct SegmentedDownloadsTests {
         #expect(!FileManager.default.fileExists(atPath: folder.path))
     }
 
+    @Test func onMobileDataWithTheSettingOffADownloadWaitsForWiFi() {
+        let may = SegmentedDownloads.mayFetch
+        #expect(may(false, false))  // Wi-Fi
+        #expect(may(false, true))
+        #expect(!may(true, false))  // mobile data, "Download over Cellular" off
+        #expect(may(true, true))    // mobile data, on
+    }
+
+    @Test func aDownloadThroughTheTailscaleForwarderOnMobileDataFetchesNothingUntilAllowed() async throws {
+        // Away from home the server is reached through the Tailscale forwarder on 127.0.0.1,
+        // which the system never counts as cellular: the download itself must hold back. And
+        // turning the setting on applies at once (the session used to be built once, with the
+        // setting as it was at launch).
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [CountedResponse.self]
+        let downloads = SegmentedDownloads(root: root, session: URLSession(configuration: config))
+        var allowed = false
+        downloads.onCellular = { true }
+        downloads.allowCellular = { allowed }
+        var rec = DownloadRecord(kind: .segments, title: "Test", sourceId: UUID(), qualityLabel: "480p", fileExtension: "mp4")
+        rec.setBase = "/v1/items/abc/offline/h264-854x480-1500k"
+        let client = MoonriseClient(sourceId: nil, baseURL: URL(string: "http://127.0.0.1:41641")!, token: "fake-token")
+        let path = "video/\(Int.random(in: 1000..<100_000)).m4s"
+        try FileManager.default.createDirectory(at: downloads.hlsDirectory(rec.id), withIntermediateDirectories: true)
+
+        do {
+            try await downloads.fetch(rec, path, client: client, base: client.baseURL)
+            Issue.record("fetched over mobile data with Download over Cellular off")
+        } catch SegmentedDownloads.Failure.waitingForWiFi {
+        } catch {
+            Issue.record("unexpected \(error)")
+        }
+        #expect(CountedResponse.requests(path) == 0)
+        #expect(!downloads.exists(rec.id, path))
+
+        allowed = true
+        #expect(try await downloads.fetch(rec, path, client: client, base: client.baseURL))
+        #expect(CountedResponse.requests(path) == 1)
+        #expect(downloads.exists(rec.id, path))
+    }
+
     @Test func foldersNoDownloadNamesAreFoundAtLaunch() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -260,4 +303,26 @@ private final class HeldResponse: URLProtocol, @unchecked Sendable {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() { Self.lock.withLock { Self.current = self } }
     override func stopLoading() { Self.lock.withLock { Self.stopped = true } }
+}
+
+/// A server that answers every request at once, and counts them by path.
+private final class CountedResponse: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var seen: [String: Int] = [:]
+
+    /// Requests whose URL path ends with `suffix`.
+    static func requests(_ suffix: String) -> Int {
+        lock.withLock { seen.filter { $0.key.hasSuffix(suffix) }.values.reduce(0, +) }
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        Self.lock.withLock { Self.seen[request.url!.path, default: 0] += 1 }
+        let resp = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
+        client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(repeating: 1, count: 1024))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
 }

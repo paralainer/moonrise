@@ -70,12 +70,14 @@ enum HTTP {
         return URLSession(configuration: config)
     }
 
-    /// A download's HLS set, fetched segment by segment (`SegmentedDownloads`).
-    static func downloadSetSession(cellular: Bool) -> URLSession {
+    /// A download's HLS set, fetched segment by segment (`SegmentedDownloads`). Cellular is
+    /// allowed here: "Download over Cellular" is decided before each fetch
+    /// (`SegmentedDownloads.mayFetch`), which also covers the Tailscale forwarder on 127.0.0.1
+    /// (never "cellular" to the system) and a change of the setting while the app runs.
+    static func downloadSetSession() -> URLSession {
         let config = URLSessionConfiguration.default
         config.httpMaximumConnectionsPerHost = 6
         config.timeoutIntervalForRequest = 90
-        config.allowsCellularAccess = cellular
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
         config.urlCache = nil
         return URLSession(configuration: config)

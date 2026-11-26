@@ -59,13 +59,12 @@ struct HTTPTests {
         #expect(art.httpMaximumConnectionsPerHost == 6)
         #expect(art.urlCache == nil)
 
-        let set = HTTP.downloadSetSession(cellular: false).configuration
+        let set = HTTP.downloadSetSession().configuration
         #expect(set.timeoutIntervalForRequest == 90)
         #expect(set.httpMaximumConnectionsPerHost == 6)
-        #expect(set.allowsCellularAccess == false)
+        #expect(set.allowsCellularAccess)
         #expect(set.requestCachePolicy == .reloadIgnoringLocalCacheData)
         #expect(set.urlCache == nil)
-        #expect(HTTP.downloadSetSession(cellular: true).configuration.allowsCellularAccess)
 
         let sweep = HTTP.sweep.configuration
         #expect(sweep.timeoutIntervalForRequest == 1.5)

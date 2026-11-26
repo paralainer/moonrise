@@ -39,9 +39,27 @@ final class SegmentedDownloads {
     /// Downloads deleted in this run (`forget`): nothing more is written for them.
     private var deleted: Set<UUID> = []
 
+    /// Whether the device is on mobile data now, and whether "Download over Cellular" is on, read
+    /// at every fetch (a test sets them).
+    var onCellular: () -> Bool = { NetworkType.hasCellular && NetworkType.shared.isCellular }
+    var allowCellular: () -> Bool = { AppSettings.shared.allowCellularDownloads }
+
     init(root: URL, session: URLSession? = nil) {
         self.root = root
-        self.session = session ?? HTTP.downloadSetSession(cellular: AppSettings.shared.allowCellularDownloads)
+        self.session = session ?? HTTP.downloadSetSession()
+    }
+
+    /// "Download over Cellular": whether a download may fetch now. On mobile data (no Wi-Fi or
+    /// wired link) with the setting off it waits, whatever the route: through the Tailscale
+    /// forwarder on 127.0.0.1 the request never counts as cellular to the system, so the
+    /// session's `allowsCellularAccess` can't decide it. Read again before every fetch, so the
+    /// download goes on as soon as Wi-Fi is back or the setting is turned on.
+    nonisolated static func mayFetch(onCellular: Bool, allowCellular: Bool) -> Bool {
+        !onCellular || allowCellular
+    }
+
+    private func mayFetchNow() -> Bool {
+        Self.mayFetch(onCellular: onCellular(), allowCellular: allowCellular())
     }
 
     func hlsDirectory(_ id: UUID) -> URL {
@@ -173,7 +191,12 @@ final class SegmentedDownloads {
         case transient(String)
         /// Give up (the file changed, the title is gone, the sign-in expired).
         case permanent(String)
+        /// On mobile data with "Download over Cellular" off (`mayFetch`): wait for Wi-Fi.
+        case waitingForWiFi
     }
+
+    /// How often a download waiting for Wi-Fi looks again.
+    static let wifiCheck: Double = 2
 
     /// How a download rides out a bad link. A file that fails is tried again at once, a couple of
     /// times, while the other segments go on (a dropped connection costs a moment, not the run).
@@ -233,6 +256,13 @@ final class SegmentedDownloads {
                 return
             } catch is CancellationError {
                 return
+            } catch Failure.waitingForWiFi {
+                // Not the server's fault: no backoff, and back within seconds of Wi-Fi.
+                if rec.error != Self.waitingForWiFiText {
+                    log("\(rec.title): waiting for Wi-Fi (Download over Cellular is off)")
+                    onUpdate?(id) { $0.error = Self.waitingForWiFiText }
+                }
+                try? await Task.sleep(for: .seconds(Self.wifiCheck))
             } catch {
                 let msg: String = if case Failure.transient(let m) = error { m } else { error.localizedDescription }
                 let (seconds, waiting) = retry.failed(progressed: (done[id]?.count ?? 0) > before)
@@ -245,9 +275,13 @@ final class SegmentedDownloads {
         }
     }
 
+    static let waitingForWiFiText = "Waiting for Wi-Fi…"
+
     /// Describe the set (once), then fetch what is missing. Returns when complete.
     private func step(_ id: UUID) async throws {
         guard var rec = record?(id) else { return }
+        guard mayFetchNow() else { throw Failure.waitingForWiFi }
+        if rec.error == Self.waitingForWiFiText { onUpdate?(id) { $0.error = nil } }
         guard let client = client(for: rec), let base = client.moonriseBaseURL else { throw Failure.transient("no server") }
         guard reachable(rec) else { throw Failure.transient("unreachable") }
         if !rec.hasPlaylist {
@@ -302,6 +336,8 @@ final class SegmentedDownloads {
         // Wait for the subtitles (they are small; extraction can take a while the first time).
         await subs.value
         let missingSubs = (rec.subtitleTracks ?? []).filter { !exists(id, "subs/\($0)/cues.vtt") }
+        // Stopped by mobile data, not missing on the server: fetched once Wi-Fi is back.
+        if !missingSubs.isEmpty, !mayFetchNow() { throw Failure.waitingForWiFi }
         if !missingSubs.isEmpty { log("\(rec.title): \(missingSubs.count) subtitle renditions missing") }
         guard completeSegments(rec).count >= count else { throw Failure.transient("segments missing") }
         let size = Self.directorySize(hlsDirectory(id))
@@ -498,6 +534,7 @@ final class SegmentedDownloads {
         if let t = inflight[key] {
             task = t
         } else {
+            guard mayFetchNow() else { throw Failure.waitingForWiFi }
             guard let setBase = rec.setBase, let url = MoonriseServer.resolve(setBase + "/" + path, base: base) else {
                 throw Failure.permanent("No download set")
             }
@@ -588,7 +625,7 @@ final class SegmentedDownloads {
                 // Watching for the server to come back.
                 await refreshRoutes()
             }
-            if let rec = record?(id), rec.hasPlaylist, reachable(rec), let client = client(for: rec), let base = client.moonriseBaseURL {
+            if mayFetchNow(), let rec = record?(id), rec.hasPlaylist, reachable(rec), let client = client(for: rec), let base = client.moonriseBaseURL {
                 let ok: Bool
                 do {
                     ok = try await fetch(rec, path, client: client, base: base, timeout: max(5, deadline.timeIntervalSinceNow))
