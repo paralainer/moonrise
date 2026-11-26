@@ -21,6 +21,9 @@ import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.source.LoadEventInfo
+import androidx.media3.exoplayer.source.MediaLoadData
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import app.moonrise.core.AudioCandidate
@@ -39,6 +42,7 @@ import app.moonrise.core.PlaybackProblem
 import app.moonrise.core.unplayableProblem
 import app.moonrise.core.Quality
 import app.moonrise.core.RecoveryTries
+import app.moonrise.core.SlowLink
 import app.moonrise.core.ReportEvent
 import app.moonrise.core.Segment
 import app.moonrise.core.SegmentKind
@@ -312,6 +316,14 @@ class PlayerModel(
     private var stuckSince: Long? = null
     private var lastTick = -1.0
     private var lastProbe = 0L
+    /** When the session's playlist last answered a check (the server is there). */
+    private var lastAnswered = 0L
+    /** Bytes the player has fetched (finished loads), for [SlowLink]. */
+    private var loadedBytes = 0L
+    /** When the current stall began (ms), and [loadedBytes] then. */
+    private var stallMark: Pair<Long, Long>? = null
+    /** Stalls that reopened the same stream although its session answered ([SlowLink]). */
+    private var answeredRestarts = 0
 
     /** The viewer's own play or pause (Media3 pausing itself on a stall doesn't count). */
     private var playIntent = true
@@ -663,6 +675,11 @@ class PlayerModel(
             .build()
         playWhenReady = p.playWhenReady
         playbackEnded = false
+        p.addAnalyticsListener(object : AnalyticsListener {
+            override fun onLoadCompleted(eventTime: AnalyticsListener.EventTime, loadEventInfo: LoadEventInfo, mediaLoadData: MediaLoadData) {
+                loadedBytes += loadEventInfo.bytesLoaded
+            }
+        })
         p.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
                 Log.i(TAG) { "state ${stateName(state)} at ${fmt(p.currentPosition / 1000.0)}" }
@@ -1561,15 +1578,18 @@ class PlayerModel(
             stuckSince = null
             if (moving && p.isPlaying) {
                 playedSinceRecovery += 1
-                if (playedSinceRecovery >= 15) recoveryTries.reset()
+                if (playedSinceRecovery >= 15) { recoveryTries.reset(); answeredRestarts = 0 }
                 // Only once this run's stream is loaded: until then the old one is still playing.
                 if (run?.master != null && switches.played(currentChoice())) Log.i(TAG) { "switch to $pickedLabel plays" }
             }
             return
         }
-        val since = stuckSince ?: System.currentTimeMillis().also { stuckSince = it }
+        val since = stuckSince ?: System.currentTimeMillis().also {
+            stuckSince = it
+            stallMark = it to loadedBytes
+        }
         val stuck = (System.currentTimeMillis() - since) / 1000
-        if (stuck >= (if (everReady) 20 else 40)) recover("no progress for $stuck s")
+        if (stuck >= (if (everReady) 20 else 40)) recover("no progress for $stuck s", stalled = true)
         else if (stuck >= 6) checkSession("no progress for $stuck s")
     }
 
@@ -1599,29 +1619,50 @@ class PlayerModel(
         api.http.newBuilder().connectTimeout(4, java.util.concurrent.TimeUnit.SECONDS).readTimeout(4, java.util.concurrent.TimeUnit.SECONDS).build()
     }
 
+    /** The session's master playlist's answer (null: unreachable). */
+    private suspend fun probe(master: String): Int? = withContext(Dispatchers.IO) {
+        runCatching { probeHttp.newCall(okhttp3.Request.Builder().url(master).build()).execute().use { it.code } }.getOrNull()
+    }
+
     /** Asks the session's master playlist whether the session is still there. */
     private fun checkSession(why: String) {
         val master = run?.master ?: return
         if (System.currentTimeMillis() - lastProbe < 3000) return
         lastProbe = System.currentTimeMillis()
         scope.launch {
-            val code = withContext(Dispatchers.IO) {
-                runCatching {
-                    probeHttp.newCall(okhttp3.Request.Builder().url(master).build()).execute().use { it.code }
-                }.getOrNull()
-            }
+            val code = probe(master)
             Log.i(TAG) { "stream check ($why): ${code ?: "unreachable"}" }
             if (run?.master != master || recovering) return@launch
+            if (code != null && code < 400) lastAnswered = System.currentTimeMillis()
             if (code == 410 || code == 404 || code == null) recover("the session is gone or unreachable ($why)")
         }
     }
 
-    /** [decoder]: the failure that asks for this try was the TV's decoder refusing the stream. */
-    private fun recover(why: String, failure: Boolean = false, decoder: Boolean = false) {
+    /**
+     * [decoder]: the failure that asks for this try was the TV's decoder refusing the stream.
+     * [stalled]: no progress while it should play (the link may be too slow: [SlowLink]).
+     */
+    private fun recover(why: String, failure: Boolean = false, decoder: Boolean = false, stalled: Boolean = false) {
         if (run == null || recovering || run?.local == true) return
+        val pos = skipTarget ?: (if (currentTime > 0.5) currentTime else position ?: 0.0)
+        if (stalled) {
+            when (val action = slowLinkAction()) {
+                SlowLink.Action.Restart -> if ((stallMark?.first ?: Long.MAX_VALUE) <= lastAnswered) answeredRestarts++
+                is SlowLink.Action.Lower -> {
+                    // Another stream, at a quality the link carries: its tries start afresh.
+                    showNotice("The connection is too slow for ${quality.label}. Playing ${action.quality.label}.")
+                    quality = action.quality
+                    recoveryTries.reset()
+                    answeredRestarts = 0
+                }
+                SlowLink.Action.TooSlow -> {
+                    giveUp(StreamFailure("Connection too slow", "Playback stopped at ${clockText(pos)}. The connection is too slow for ${quality.label}. Try a faster network."))
+                    return
+                }
+            }
+        }
         val stop = recoveryTries.next(everReady, decoder)
         val p = player
-        val pos = skipTarget ?: (if (currentTime > 0.5) currentTime else position ?: 0.0)
         // As the viewer left it: an error doesn't turn a pause into play.
         val playing = playIntent
         Log.i(TAG) { "recovery: $why at ${fmt(pos)}, ${if (playing) "playing" else "paused"}${if (failure) " (after an error)" else ""}, try ${recoveryTries.count}" }
@@ -1658,10 +1699,15 @@ class PlayerModel(
                 Log.i(TAG) { "recovery: server reachable, new session at ${fmt(recoveryPosition)}" }
                 open(recoveryPosition, autoplay = false, keepSubtitle = true, restart = true)
                 // Ready (finishRecovery) within 20 s, else try again.
+                stallMark = System.currentTimeMillis() to loadedBytes
                 repeat(40) { if (recovering) delay(500) }
                 if (recovering) {
+                    // Is the server there (then the link may be too slow for the stream)?
+                    val code = run?.master?.let { probe(it) }
+                    if (!recovering) return
+                    if (code != null && code < 400) lastAnswered = System.currentTimeMillis()
                     recovering = false
-                    recover("the new stream didn't start")
+                    recover("the new stream didn't start", stalled = true)
                 }
                 return
             }
@@ -1676,6 +1722,19 @@ class PlayerModel(
             delay(wait)
             wait = minOf((wait * 1.5).toLong(), 5000L)
         }
+    }
+
+    /** What to do about the stall that began at [stallMark] ([SlowLink]): what arrived since against what the stream needs. */
+    private fun slowLinkAction(): SlowLink.Action {
+        val (at, bytes) = stallMark ?: return SlowLink.Action.Restart
+        val elapsed = (System.currentTimeMillis() - at) / 1000.0
+        val answered = lastAnswered >= at
+        val measured = if (elapsed >= 1) (loadedBytes - bytes).coerceAtLeast(0) * 8 / elapsed else null
+        val source = versionFile()?.bitrate
+        val needed = (quality.bitrate ?: source)?.toDouble()
+        val action = SlowLink.action(answered, measured, needed, answeredRestarts, quality, qualityOptions, source)
+        Log.i(TAG) { "stall: ${elapsed.toInt()} s, session ${if (answered) "answered" else "silent"}, ${measured?.toLong() ?: "?"} of ${needed?.toLong() ?: "?"} bits/s, restarts $answeredRestarts: $action" }
+        return action
     }
 
     private fun finishRecovery() {
@@ -1705,6 +1764,7 @@ class PlayerModel(
         if (failure == null) return
         failure = null
         recoveryTries.reset()
+        answeredRestarts = 0
         playIntent = true
         recover("retry")
     }

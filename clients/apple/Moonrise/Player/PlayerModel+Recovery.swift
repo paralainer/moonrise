@@ -12,7 +12,9 @@ extension PlayerModel {
     // server on some route, opens a new session at the same position with the same audio,
     // subtitle and quality, and plays it in the same AVPlayer (PiP and AirPlay carry on),
     // paused or playing as before. It gives up after a minute without the server, or when the
-    // stream keeps failing, and offers Retry.
+    // stream keeps failing, and offers Retry. A stall while the session answers and data arrives
+    // slower than the stream needs is the link being too slow: the same stream again can't keep up,
+    // so it goes down a quality (`SlowLinkRules`), or says the connection is too slow.
     //
     // A stream holds the address of the route it was opened on, and a change of route doesn't
     // reach it by itself: the watchdog compares the two (`StreamRouteRules`) and moves it, with
@@ -71,15 +73,16 @@ extension PlayerModel {
             if moving, engine.isPlaying {
                 playedSinceRecovery += 1
                 // Played a while: a later loss starts the count of tries afresh.
-                if playedSinceRecovery >= 15 { recoveryAttempts = 0; streamLostAt = nil }
+                if playedSinceRecovery >= 15 { recoveryAttempts = 0; answeredRestarts = 0; streamLostAt = nil }
             }
             return
         }
+        if stuckSince == nil { stallMark = (Date(), transferredBytes) }
         let since = stuckSince ?? Date()
         stuckSince = since
         let stuck = Date().timeIntervalSince(since)
         if stuck >= (itemReady ? 20 : 40) {
-            recover(String(format: "no progress for %.0f s", stuck))
+            recover(String(format: "no progress for %.0f s", stuck), stalled: true)
         } else if stuck >= 6 {
             checkSession(String(format: "no progress for %.0f s", stuck), stuck: true)
         }
@@ -116,6 +119,7 @@ extension PlayerModel {
             self.mark("stream check (\(why)): \(state.rawValue)")
             #endif
             guard self.streamsFromServer, self.recovery == .none, self.moonriseMaster == master else { return }
+            if state == .alive { self.lastAnswered = Date() }
             switch state {
             case .gone: self.recover("the session is gone (\(why))")
             case .unreachable where stuck || self.stuckSince != nil: self.recover("the server can't be reached (\(why))")
@@ -138,13 +142,33 @@ extension PlayerModel {
     /// - failure: the item failed with this message (AVPlayer paused it, so a pause just before
     ///   doesn't mean the viewer paused).
     /// - counts: false for a move to another route, which says nothing about the stream failing.
-    func recover(_ why: String, failure: String? = nil, counts: Bool = true) {
+    /// - stalled: no progress while it should play (the link may be too slow: `SlowLinkRules`).
+    func recover(_ why: String, failure: String? = nil, counts: Bool = true, stalled: Bool = false) {
         guard streamsFromServer, recovery != .recovering else { return }
-        if counts { recoveryAttempts += 1 }
+        var counts = counts
         let position = seekTarget ?? (currentTime > 0.5 ? currentTime : lastPosition)
+        if stalled {
+            switch slowLinkAction() {
+            case .restart:
+                if let stall = stallMark, lastAnswered >= stall.at { answeredRestarts += 1 }
+            case let .lower(q):
+                // Another stream, at a quality the link carries: its tries start afresh.
+                notice = "The connection is too slow for \(quality.label). Playing \(q.label)."
+                quality = q
+                recoveryAttempts = 0
+                answeredRestarts = 0
+                streamLostAt = nil
+                counts = false
+            case .tooSlow:
+                giveUp(StreamFailure(title: "Connection too slow",
+                                     detail: "Playback stopped at \(Fmt.duration(position)). The connection is too slow for \(quality.label). Try a faster network."))
+                return
+            }
+        }
+        if counts { recoveryAttempts += 1 }
         let playing = playIntent || (failure != nil && Date().timeIntervalSince(intentChangedAt) < 2)
         #if DEBUG
-        mark(String(format: "recovery: %@ at %.1f, %@, try %d", why, position, playing ? "playing" : "paused", recoveryAttempts))
+        mark(String(format: "recovery: %@ at %.1f, %@, try %d, quality %@", why, position, playing ? "playing" : "paused", recoveryAttempts, quality.label))
         #endif
         // A stream that fails again and again (never got going, or only briefly): stop trying.
         if recoveryAttempts > (everReady ? 4 : 2) {
@@ -189,15 +213,19 @@ extension PlayerModel {
                     #endif
                     try await openSession(at: recoveryPosition, keepSubtitle: true, reuse: true)
                     guard !Task.isCancelled, !closed else { return }
+                    stallMark = (Date(), transferredBytes)
                     // The new item: ready (finishRecovery) or failed (statusChanged) within 20 s
                     // (AVPlayer can sit on a connection that died with the network: try again).
                     for _ in 0..<40 where recovery == .recovering && awaitingNewItem {
                         try? await Task.sleep(for: .milliseconds(500))
                     }
                     if recovery == .recovering, awaitingNewItem, !Task.isCancelled {
+                        // Is the server there (then the link may be too slow for the stream)?
+                        if let master = moonriseMaster, await Self.probe(master) == .alive { lastAnswered = Date() }
+                        guard recovery == .recovering, awaitingNewItem, !Task.isCancelled, !closed else { return }
                         awaitingNewItem = false
                         recovery = .none
-                        recover("the new stream didn't start")
+                        recover("the new stream didn't start", stalled: true)
                     }
                     return
                 } catch where !Self.isTransient(error) {
@@ -220,6 +248,32 @@ extension PlayerModel {
             try? await Task.sleep(for: .seconds(delay))
             delay = min(delay * 1.5, 5)
         }
+    }
+
+    /// Bytes the current item has fetched (nil: not known for this engine).
+    private var transferredBytes: Int64? { (engine as? AVPlayerEngine)?.transferred.bytes }
+
+    /// What to do about the stall that began at `stallMark` (`SlowLinkRules`): what arrived since
+    /// then against what the stream needs, and whether the session answered meanwhile.
+    private func slowLinkAction() -> SlowLinkRules.Action {
+        guard let stall = stallMark else { return .restart }
+        let elapsed = Date().timeIntervalSince(stall.at)
+        let answered = lastAnswered >= stall.at
+        var measured: Double?
+        if let before = stall.bytes, let now = transferredBytes, elapsed >= 1 {
+            measured = Double(max(now - before, 0)) * 8 / elapsed
+        }
+        let needed = (engine as? AVPlayerEngine)?.transferred.indicated
+            ?? (quality.bitrate ?? mediaSource?.bitrate).map(Double.init)
+        let action = SlowLinkRules.action(sessionAnswered: answered, measured: measured, needed: needed,
+                                          answeredRestarts: answeredRestarts, current: quality,
+                                          options: qualityOptions, sourceBitrate: mediaSource?.bitrate)
+        #if DEBUG
+        mark(String(format: "stall: %.0f s, session %@, %@ of %@ bits/s, restarts %d: %@", elapsed, answered ? "answered" : "silent",
+                    measured.map { String(format: "%.0f", $0) } ?? "?", needed.map { String(format: "%.0f", $0) } ?? "?",
+                    answeredRestarts, String(describing: action)))
+        #endif
+        return action
     }
 
     /// The new session's stream is ready.
@@ -279,6 +333,7 @@ extension PlayerModel {
         guard case .failed = recovery else { return }
         recovery = .none
         recoveryAttempts = 0
+        answeredRestarts = 0
         streamLostAt = nil
         // As it was when the stream was lost.
         playIntent = recoverPlaying

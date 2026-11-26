@@ -65,6 +65,14 @@ final class AVPlayerEngine: NSObject, PlayerEngine {
     /// An entry in the item's error log: HTTP status (or a negative NSURLError code), the URI.
     /// AVPlayer logs every failed request, including ones it retries by itself.
     var onErrorLogEntry: ((_ status: Int, _ uri: String?) -> Void)?
+    /// The bytes the current item has fetched so far, and its stream's bits/s (the variant's), from
+    /// its access log.
+    var transferred: (bytes: Int64, indicated: Double?) {
+        guard let events = player.currentItem?.accessLog()?.events else { return (0, nil) }
+        let bytes = events.reduce(Int64(0)) { $0 + max($1.numberOfBytesTransferred, 0) }
+        let indicated = events.last.map(\.indicatedBitrate).flatMap { $0 > 0 ? $0 : nil }
+        return (bytes, indicated)
+    }
     /// The item ran out of data while playing (it waits for more).
     var onStalled: (() -> Void)?
     /// Picture in Picture started (true) or ended (false).
