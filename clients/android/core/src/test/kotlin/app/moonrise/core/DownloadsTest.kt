@@ -304,4 +304,18 @@ class DownloadsTest {
         // Nothing since: it grows again.
         assertEquals(DownloadRetry.Wait(4_000L, true), r.failed(progressed = false))
     }
+
+    @Test
+    fun afterARelaunchTheSizeCountsWhatEarlierLaunchesFetched() {
+        // 10 kB were on the device when the app was opened again: the size goes on from there.
+        var reads = 0
+        val bytes = StoredBytes { reads++; 10_000 }
+        bytes.counter("a").addAndGet(1_024)
+        bytes.counter("a").addAndGet(1_024)
+        assertEquals(12_048L, bytes["a"])
+        assertEquals(1, reads)
+        assertEquals(0L, bytes["b"])
+        bytes.remove("a")
+        assertEquals(0L, bytes["a"])
+    }
 }

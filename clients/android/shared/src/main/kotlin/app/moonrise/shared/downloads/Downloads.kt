@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import app.moonrise.core.DownloadBadge
 import app.moonrise.core.DownloadRecord
 import app.moonrise.core.DownloadRetry
+import app.moonrise.core.StoredBytes
 import app.moonrise.core.DownloadRules
 import app.moonrise.core.DownloadState
 import app.moonrise.core.Item
@@ -76,7 +77,7 @@ object Downloads {
     private val done = ConcurrentHashMap<String, MutableSet<Int>>()
     private val playhead = ConcurrentHashMap<String, PlayerPosition>()
     private val inflight = ConcurrentHashMap<String, Deferred<Unit>>()
-    private val bytes = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
+    private val bytes = StoredBytes { id -> hls(id).walkTopDown().filter { it.isFile }.sumOf { it.length() } }
     private val lastSave = ConcurrentHashMap<String, Long>()
     private var lastIndexSave = 0L
 
@@ -323,8 +324,9 @@ object Downloads {
         val task = inflight.getOrPut(key) {
             scope.async {
                 try {
+                    val count = bytes.counter(rec.id)
                     val n = intoFolder(rec.id) { api.downloadFile(base, path, rec.setVersion, File(hls(rec.id), path), timeoutSeconds) }
-                    bytes.getOrPut(rec.id) { java.util.concurrent.atomic.AtomicLong() }.addAndGet(n)
+                    count.addAndGet(n)
                 } catch (e: MoonriseHttpException) {
                     throw when (e.code) {
                         409 -> Failure(true, "The file changed on the server. Delete the download and download it again.")
@@ -348,7 +350,7 @@ object Downloads {
         val now = System.currentTimeMillis()
         if (total != count && now - (lastSave[id] ?: 0) <= 1000) return
         lastSave[id] = now
-        val written = bytes[id]?.get() ?: 0
+        val written = bytes[id]
         Session.main.post {
             update(id) { r ->
                 val progress = total.toDouble() / maxOf(count, 1)

@@ -34,6 +34,7 @@ final class SegmentedDownloads {
     private var runToken: [UUID: UUID] = [:]
     /// Files being fetched (download id + relative path), so the player and the loop share them.
     private var inflight: [String: Task<Failure?, Never>] = [:]
+    /// Bytes of each download on the device (`counted`).
     private var bytes: [UUID: Int64] = [:]
     private var lastSave: [UUID: Date] = [:]
     /// Downloads deleted in this run (`forget`): nothing more is written for them.
@@ -553,7 +554,7 @@ final class SegmentedDownloads {
                         return .permanent("Deleted")
                     }
                     let size = try Self.place(tmp, at: dest)
-                    self.bytes[id, default: 0] += Int64(size)
+                    self.counted(id, placed: Int64(size))
                     return nil
                 } catch let f as Failure {
                     return f
@@ -595,7 +596,18 @@ final class SegmentedDownloads {
         return (try? fm.attributesOfItem(atPath: dest.path)[.size] as? Int) ?? 0
     }
 
-    private func segmentComplete(_ id: UUID, _ n: Int, count: Int) {
+    /// A fetched file is in the download's folder: count it. The first file in a launch counts
+    /// the whole folder instead, so what earlier launches fetched is in the size too (it used to
+    /// start from nothing at every launch, and the row showed only this launch's bytes).
+    private func counted(_ id: UUID, placed size: Int64) {
+        if let b = bytes[id] {
+            bytes[id] = b + size
+        } else {
+            bytes[id] = Self.directorySize(hlsDirectory(id))
+        }
+    }
+
+    func segmentComplete(_ id: UUID, _ n: Int, count: Int) {
         var d = done[id] ?? IndexSet()
         d.insert(n)
         done[id] = d
