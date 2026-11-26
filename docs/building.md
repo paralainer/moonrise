@@ -106,7 +106,7 @@ git-ignored `server/deploy/local/` (see the script's header).
 
 Prerequisites on the Mac: Xcode (26 or later; the version used is in `clients/apple/Config/toolchain.env`),
 XcodeGen (`brew install xcodegen`), and an iOS and a tvOS simulator runtime (Xcode → Settings →
-Components). For the screenshot and input scripts (`shot.sh`, `tap.sh`, `tvshot.sh`, `tvkey.sh`) also
+Components). For the screenshot and input scripts (`shot.sh`, `tap.sh`, `tvshot.sh`, `tvkey.sh`, `sim-net.sh`) also
 [idb](https://fbidb.io): `brew install facebook/fb/idb-companion`, and the client in a virtualenv at
 `~/idb-venv` (`python3 -m venv ~/idb-venv && ~/idb-venv/bin/pip install fb-idb`). Building and
 launching on simulators doesn't need idb.
@@ -142,7 +142,7 @@ All of them are listed in `clients/apple/Moonrise/Support/DebugSeams.swift`; rel
 
 `scripts/` drives a build Mac over SSH from another machine (this project was developed from
 Linux): `build.sh`, `sim.sh`/`tvsim.sh` (install and launch on simulators), `shot.sh`/`tap.sh`/
-`tvkey.sh` (screenshots and input through idb), `deploy-phone.sh`/`deploy-tv.sh`/`deploy-mac.sh`
+`tvkey.sh` (screenshots and input through idb), `sim-net.sh`/`net-scenarios.sh` with `netgate.py` (the iPhone app on a bad network, see [testing](dev/testing.md#where-the-tests-are)), `deploy-phone.sh`/`deploy-tv.sh`/`deploy-mac.sh`
 (signed installs; `deploy-android-tv.sh <tv-address>` builds the Android TV app in Docker and
 installs it over adb, see `clients/android/README.md`), `ota.sh` (an ad-hoc IPA, built on `RELEASE_MAC` as the App Store builds are), `release-apple.sh` and `store-shots.sh` (App Store builds, TestFlight, the listing and its screenshots, see [publishing.md](publishing.md#app-store)); `<script> --help` shows a script's
 usage. They read the git-ignored `scripts/mac.env` (copy `scripts/mac.env.example`; at least `MAC`,
