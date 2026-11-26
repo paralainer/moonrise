@@ -165,10 +165,55 @@ final class SegmentedDownloads {
         case permanent(String)
     }
 
+    /// How a download rides out a bad link. A file that fails is tried again at once, a couple of
+    /// times, while the other segments go on (a dropped connection costs a moment, not the run).
+    /// Only when that fails too does the whole run wait, and the wait grows only while nothing gets
+    /// through: after segments arrived it starts again from the shortest, and the row says
+    /// "Waiting for the server…" only from a second failure in a row with nothing in between.
+    struct Retry {
+        /// Tries of one file, and the pauses before the second and the third.
+        static let fileTries = 3
+        static let filePauses: [Double] = [0.5, 1.5]
+        static let shortest: Double = 2
+        static let longest: Double = 15
+
+        private var wait = Self.shortest
+        private var failedInARow = 0
+
+        /// The run failed; `progressed`: segments arrived since the run started or last failed.
+        /// How long to wait, and whether to tell the viewer it waits for the server.
+        mutating func failed(progressed: Bool) -> (seconds: Double, waiting: Bool) {
+            if progressed {
+                wait = Self.shortest
+                failedInARow = 0
+            }
+            failedInARow += 1
+            let seconds = wait
+            wait = min(wait * 2, Self.longest)
+            return (seconds, failedInARow > 1)
+        }
+
+        /// Runs `fetch`, trying again after a transient failure (`fileTries` in all).
+        static func file<T>(pause: (Double) async throws -> Void = { try await Task.sleep(for: .seconds($0)) },
+                            _ fetch: () async throws -> T) async throws -> T {
+            var tries = 1
+            while true {
+                do {
+                    return try await fetch()
+                } catch Failure.transient where tries < fileTries {
+                    try Task.checkCancellation()
+                    try await pause(filePauses[min(tries - 1, filePauses.count - 1)])
+                    tries += 1
+                }
+            }
+        }
+    }
+
     private func run(_ id: UUID) async {
-        var backoff: Double = 2
+        var retry = Retry()
         while !Task.isCancelled {
             guard let rec = record?(id), rec.state == .downloading || rec.state == .queued else { return }
+            let before = done[id]?.count ?? 0
             do {
                 try await step(id)
                 return
@@ -180,10 +225,10 @@ final class SegmentedDownloads {
                 return
             } catch {
                 let msg: String = if case Failure.transient(let m) = error { m } else { error.localizedDescription }
-                log("\(rec.title): waiting (\(msg)), again in \(Int(backoff)) s")
-                onUpdate?(id) { $0.error = "Waiting for the server…" }
-                try? await Task.sleep(for: .seconds(backoff))
-                backoff = min(backoff * 2, 15)
+                let (seconds, waiting) = retry.failed(progressed: (done[id]?.count ?? 0) > before)
+                log("\(rec.title): waiting (\(msg)), again in \(Int(seconds)) s")
+                if waiting { onUpdate?(id) { $0.error = "Waiting for the server…" } }
+                try? await Task.sleep(for: .seconds(seconds))
                 // The route may have gone (or come back): check it.
                 await refreshRoutes()
             }
@@ -205,7 +250,7 @@ final class SegmentedDownloads {
         let tracks = Self.tracks(rec)
         // Init sections first (the player needs them before any segment).
         for t in tracks where !exists(id, "\(t)/init.mp4") {
-            try await fetch(rec, "\(t)/init.mp4", client: client, base: base)
+            try await Retry.file { try await self.fetch(rec, "\(t)/init.mp4", client: client, base: base) }
         }
         // Subtitles: one file per track, made by the server from the whole title.
         let subs = Task { [weak self] in
@@ -228,7 +273,7 @@ final class SegmentedDownloads {
                 group.addTask { @MainActor [weak self] in
                     guard let self else { return }
                     for t in tracks where !self.exists(id, "\(t)/\(n).m4s") {
-                        try await self.fetch(rec, "\(t)/\(n).m4s", client: client, base: base)
+                        try await Retry.file { try await self.fetch(rec, "\(t)/\(n).m4s", client: client, base: base) }
                     }
                     self.segmentComplete(id, n, count: count)
                 }

@@ -121,4 +121,62 @@ struct SegmentedDownloadsTests {
         #expect(SegmentedDownloads.segmentsNeeded(playlist: playlist(3), at: 15.5) == [2])
         #expect(SegmentedDownloads.segmentsNeeded(playlist: playlist(3), at: 16) == [])
     }
+
+    // MARK: - A bad link (`Retry`)
+
+    typealias Retry = SegmentedDownloads.Retry
+    typealias Failure = SegmentedDownloads.Failure
+
+    @Test func aDroppedConnectionIsTriedAgainAtOnce() async throws {
+        // The link drops the connection of one file twice: the third try gets it, after two short
+        // pauses, and the run goes on without waiting.
+        var tries = 0
+        var pauses: [Double] = []
+        let got = try await Retry.file(pause: { pauses.append($0) }) {
+            tries += 1
+            if tries < 3 { throw Failure.transient("The network connection was lost.") }
+            return "file"
+        }
+        #expect(got == "file")
+        #expect(tries == 3)
+        #expect(pauses == [0.5, 1.5])
+    }
+
+    @Test func aFileThatKeepsFailingGivesUpAfterAFewTries() async {
+        var tries = 0
+        await #expect(throws: Failure.self) {
+            try await Retry.file(pause: { _ in }) { () async throws -> Int in
+                tries += 1
+                throw Failure.transient("unreachable")
+            }
+        }
+        #expect(tries == Retry.fileTries)
+        // A permanent failure (the sign-in expired, the title is gone) isn't tried again.
+        tries = 0
+        await #expect(throws: Failure.self) {
+            try await Retry.file(pause: { _ in }) { () async throws -> Int in
+                tries += 1
+                throw Failure.permanent("gone")
+            }
+        }
+        #expect(tries == 1)
+    }
+
+    @Test func theWaitGrowsOnlyWhileNothingGetsThrough() {
+        var r = Retry()
+        // The server can't be reached: 2, 4, 8, 15, 15 s; "Waiting for the server…" from the second.
+        let down = (0..<5).map { _ in r.failed(progressed: false) }
+        #expect(down.map(\.seconds) == [2, 4, 8, 15, 15])
+        #expect(down.map(\.waiting) == [false, true, true, true, true])
+        // Segments arrived again, then a connection dropped: the shortest wait, and no
+        // "Waiting for the server…" (it used to be 15 s for every drop from then on).
+        let blip = r.failed(progressed: true)
+        #expect(blip.seconds == 2)
+        #expect(!blip.waiting)
+        #expect(r.failed(progressed: true).seconds == 2)
+        // Nothing since: it grows again.
+        let again = r.failed(progressed: false)
+        #expect(again.seconds == 4)
+        #expect(again.waiting)
+    }
 }

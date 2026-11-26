@@ -244,4 +244,50 @@ class DownloadsTest {
         assertEquals("1.5 GB", Quality.original.sizeLabel(900.0, 1_500_000_000))
         assertNull(Quality.presets.first().sizeLabel(null, null))
     }
+
+    // A bad link (DownloadRetry), as the iPhone's SegmentedDownloadsTests.
+
+    @Test
+    fun aDroppedConnectionIsTriedAgainAtOnce() = kotlinx.coroutines.runBlocking {
+        var tries = 0
+        val pauses = mutableListOf<Long>()
+        val got = DownloadRetry.file(retryable = { true }, pause = { pauses += it }) {
+            tries += 1
+            if (tries < 3) throw java.io.IOException("connection reset")
+            "file"
+        }
+        assertEquals("file", got)
+        assertEquals(3, tries)
+        assertEquals(listOf(500L, 1500L), pauses)
+    }
+
+    @Test
+    fun aFileThatKeepsFailingGivesUpAfterAFewTries() = kotlinx.coroutines.runBlocking {
+        var tries = 0
+        val e = runCatching {
+            DownloadRetry.file<Unit>(retryable = { true }, pause = {}) { tries += 1; throw java.io.IOException("unreachable") }
+        }.exceptionOrNull()
+        assertTrue(e is java.io.IOException)
+        assertEquals(DownloadRetry.FILE_TRIES, tries)
+        // A permanent failure (the sign-in expired, the title is gone) isn't tried again.
+        tries = 0
+        runCatching {
+            DownloadRetry.file<Unit>(retryable = { false }, pause = {}) { tries += 1; throw IllegalStateException("gone") }
+        }
+        assertEquals(1, tries)
+    }
+
+    @Test
+    fun theWaitGrowsOnlyWhileNothingGetsThrough() {
+        val r = DownloadRetry()
+        // The server can't be reached: 2, 4, 8, 15, 15 s; "Waiting for the server…" from the second.
+        val down = (0 until 5).map { r.failed(progressed = false) }
+        assertEquals(listOf(2_000L, 4_000L, 8_000L, 15_000L, 15_000L), down.map { it.millis })
+        assertEquals(listOf(false, true, true, true, true), down.map { it.waiting })
+        // Segments arrived again, then a connection dropped: the shortest wait, quietly.
+        assertEquals(DownloadRetry.Wait(2_000L, false), r.failed(progressed = true))
+        assertEquals(2_000L, r.failed(progressed = true).millis)
+        // Nothing since: it grows again.
+        assertEquals(DownloadRetry.Wait(4_000L, true), r.failed(progressed = false))
+    }
 }
