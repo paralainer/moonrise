@@ -167,6 +167,24 @@ fun bytesText(n: Long): String = when {
     else -> "%.2f GB".format(java.util.Locale.ROOT, n / 1e9)
 }
 
+/**
+ * Bytes of each download on the device, for its size while it downloads. A download's count starts
+ * from its folder (`onDisk`) the first time a file is fetched in a launch, before that file comes,
+ * so what earlier launches fetched counts too (it used to start from nothing at every launch, and
+ * the row showed only this launch's bytes); each fetched file is then added to it.
+ */
+class StoredBytes(private val onDisk: (String) -> Long) {
+    private val counts = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
+
+    /** The count of a download, before one of its files is fetched: add the file's size to it. */
+    fun counter(id: String): java.util.concurrent.atomic.AtomicLong =
+        counts.computeIfAbsent(id) { java.util.concurrent.atomic.AtomicLong(onDisk(it)) }
+
+    operator fun get(id: String): Long = counts[id]?.get() ?: 0
+
+    fun remove(id: String) { counts.remove(id) }
+}
+
 object DownloadRules {
     /** Segment requests in flight at once; one at a time while someone watches. */
     const val PARALLEL = 3

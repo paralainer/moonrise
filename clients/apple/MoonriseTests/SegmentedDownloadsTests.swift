@@ -252,6 +252,39 @@ struct SegmentedDownloadsTests {
         #expect(downloads.exists(rec.id, path))
     }
 
+    @Test func afterARelaunchTheSizeCountsWhatEarlierLaunchesFetched() async throws {
+        // A download reached 40 % (10 kB on the device), the app was ended and opened again.
+        // The size shown must go on from what is stored, not from what this launch fetched.
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [CountedResponse.self]
+        let downloads = SegmentedDownloads(root: root, session: URLSession(configuration: config))
+        downloads.onCellular = { false }
+        var rec = DownloadRecord(kind: .segments, title: "Test", sourceId: UUID(), qualityLabel: "480p", fileExtension: "mp4")
+        rec.setBase = "/v1/items/abc/offline/h264-854x480-1500k"
+        rec.segmentCount = 5
+        rec.progress = 0.4
+        rec.segmentsDone = 2
+        rec.bytesWritten = 9_000  // saved a moment before the app was ended
+        rec.bytesExpected = 25_000
+        let dir = downloads.hlsDirectory(rec.id)
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("video"), withIntermediateDirectories: true)
+        for n in 0..<2 { try Data(repeating: 0, count: 5_000).write(to: dir.appendingPathComponent("video/\(n).m4s")) }
+        downloads.record = { _ in rec }
+        downloads.onUpdate = { _, change in change(&rec) }
+        let client = MoonriseClient(sourceId: nil, baseURL: URL(string: "http://192.168.1.10:8097")!, token: "fake-token")
+
+        _ = downloads.completeSegments(rec)  // as the run does first
+        // This launch fetches segment 2 (1 kB).
+        try await downloads.fetch(rec, "video/2.m4s", client: client, base: client.baseURL)
+        downloads.segmentComplete(rec.id, 2, count: 5)
+
+        #expect(rec.bytesWritten == 11_024)
+        #expect(rec.bytesWritten == SegmentedDownloads.directorySize(dir))
+        #expect(rec.bytesExpected >= 25_000)
+    }
+
     @Test func foldersNoDownloadNamesAreFoundAtLaunch() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
