@@ -36,10 +36,12 @@ final class SegmentedDownloads {
     private var inflight: [String: Task<Failure?, Never>] = [:]
     private var bytes: [UUID: Int64] = [:]
     private var lastSave: [UUID: Date] = [:]
+    /// Downloads deleted in this run (`forget`): nothing more is written for them.
+    private var deleted: Set<UUID> = []
 
-    init(root: URL) {
+    init(root: URL, session: URLSession? = nil) {
         self.root = root
-        session = HTTP.downloadSetSession(cellular: AppSettings.shared.allowCellularDownloads)
+        self.session = session ?? HTTP.downloadSetSession(cellular: AppSettings.shared.allowCellularDownloads)
     }
 
     func hlsDirectory(_ id: UUID) -> URL {
@@ -122,8 +124,16 @@ final class SegmentedDownloads {
         playhead[id, default: PlayerPosition()].waits(waiting)
     }
 
+    /// The download is deleted: its run and its files in flight stop, and a file that arrives
+    /// anyway is thrown away rather than making the download's folder again.
     func forget(_ id: UUID) {
         stop(id)
+        deleted.insert(id)
+        let prefix = id.uuidString + "/"
+        for (key, task) in inflight where key.hasPrefix(prefix) {
+            task.cancel()
+            inflight[key] = nil
+        }
         done[id] = nil
         playhead[id] = nil
         bytes[id] = nil
@@ -421,6 +431,9 @@ final class SegmentedDownloads {
         comps.queryItems = q
         let req = HTTP.request(comps.url!, headers: client.headers, timeout: 60)
         let (data, status) = try await HTTP.data(for: req, on: session)
+        // Deleted meanwhile: no folder for it.
+        try Task.checkCancellation()
+        if deleted.contains(rec.id) { throw CancellationError() }
         guard status == 200 else {
             let msg = String(data: data, encoding: .utf8) ?? "HTTP \(status)"
             throw status == 503 || status >= 500 ? Failure.transient(msg) : Failure.permanent(msg.isEmpty ? "The server answered \(status)." : msg)
@@ -479,6 +492,7 @@ final class SegmentedDownloads {
     /// Fetch one file of the set to the device (shared with a request for the same file).
     @discardableResult
     func fetch(_ rec: DownloadRecord, _ path: String, client: any MediaServerClient, base: URL, timeout: TimeInterval = 90) async throws -> Bool {
+        if deleted.contains(rec.id) { throw CancellationError() }
         let key = rec.id.uuidString + "/" + path
         let task: Task<Failure?, Never>
         if let t = inflight[key] {
@@ -495,7 +509,13 @@ final class SegmentedDownloads {
             let id = rec.id
             task = Task<Failure?, Never> {
                 do {
-                    let size = try await Self.download(req, to: dest, session: session)
+                    let tmp = try await Self.download(req, session: session)
+                    // Deleted while it came (`forget`): thrown away, the folder stays gone.
+                    if Task.isCancelled || self.deleted.contains(id) {
+                        try? FileManager.default.removeItem(at: tmp)
+                        return .permanent("Deleted")
+                    }
+                    let size = try Self.place(tmp, at: dest)
                     self.bytes[id, default: 0] += Int64(size)
                     return nil
                 } catch let f as Failure {
@@ -507,13 +527,14 @@ final class SegmentedDownloads {
             inflight[key] = task
         }
         let failure = await task.value
-        inflight[key] = nil
+        if inflight[key] == task { inflight[key] = nil }
+        if deleted.contains(rec.id) { throw CancellationError() }
         if let failure { throw failure }
         return true
     }
 
-    /// GET to a file (written whole: a partial file is never there).
-    nonisolated private static func download(_ req: URLRequest, to dest: URL, session: URLSession) async throws -> Int {
+    /// GET to a temporary file.
+    nonisolated private static func download(_ req: URLRequest, session: URLSession) async throws -> URL {
         let (tmp, status) = try await HTTP.download(for: req, on: session)
         guard status == 200 else {
             let body = (try? String(contentsOf: tmp, encoding: .utf8)) ?? ""
@@ -525,6 +546,11 @@ final class SegmentedDownloads {
             default: throw Failure.transient("HTTP \(status) \(body.prefix(120))")
             }
         }
+        return tmp
+    }
+
+    /// A fetched file into the download (moved whole: a partial file is never there). Its size.
+    nonisolated private static func place(_ tmp: URL, at dest: URL) throws -> Int {
         let fm = FileManager.default
         try? fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? fm.removeItem(at: dest)
