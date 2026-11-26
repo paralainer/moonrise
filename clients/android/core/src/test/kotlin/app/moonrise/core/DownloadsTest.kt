@@ -32,6 +32,20 @@ class DownloadsTest {
     }
 
     @Test
+    fun aWaitingDownloadIsNotShownAsDownloading() {
+        val waiting = rec("a", DownloadState.Downloading).copy(progress = 0.19, error = "Waiting for the server…")
+        assertEquals("Download waiting at 19 %: Waiting for the server…", waiting.statusLine)
+        assertEquals(DownloadBadge.Waiting(19, "Waiting for the server…"), waiting.badge)
+        assertEquals(DownloadBadge.Downloading(19), waiting.copy(error = null).badge)
+    }
+
+    @Test
+    fun homeSaysTheServerCantBeReachedUnlessTheDeviceIsOffline() {
+        assertEquals("Can't reach the server", offlineBannerText(online = true))
+        assertEquals("Offline: showing downloads", offlineBannerText(online = false))
+    }
+
+    @Test
     fun groupsAsTheDownloadsTab() {
         val film = rec("f", item = Item(id = "f", kind = "movie", title = "Film"))
         val going = rec("g", DownloadState.Downloading, item = Item(id = "g", kind = "movie", title = "Going"))

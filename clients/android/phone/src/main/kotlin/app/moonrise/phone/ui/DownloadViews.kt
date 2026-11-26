@@ -27,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowCircleDown
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Pause
@@ -74,11 +75,13 @@ import app.moonrise.core.DownloadState
 import app.moonrise.core.Item
 import app.moonrise.core.MediaFile
 import app.moonrise.core.Quality
+import app.moonrise.core.offlineBannerText
 import app.moonrise.phone.Autoplay
 import app.moonrise.phone.LocalNav
 import app.moonrise.phone.Route
 import app.moonrise.phone.Tab
 import app.moonrise.shared.AppSettings
+import app.moonrise.shared.Network
 import app.moonrise.shared.Session
 import app.moonrise.shared.downloads.Downloads
 import app.moonrise.shared.downloads.ProgressStore
@@ -122,6 +125,7 @@ fun DownloadStateIcon(badge: DownloadBadge, size: Dp = 18.dp, modifier: Modifier
         }, contentAlignment = Alignment.Center) {
             Icon(Icons.Filled.ArrowDownward, "Downloading, ${badge.percent} percent", tint = Color.White, modifier = Modifier.size(size * 0.55f))
         }
+        is DownloadBadge.Waiting -> Icon(Icons.Filled.Schedule, "Download waiting: ${badge.reason}", tint = Color.White.copy(alpha = 0.8f), modifier = modifier.size(size).background(Color.Black, CircleShape))
         DownloadBadge.Queued -> Icon(Icons.Filled.Schedule, "Download waiting", tint = Color.White.copy(alpha = 0.8f), modifier = modifier.size(size).background(Color.Black, CircleShape))
         DownloadBadge.Paused -> Icon(Icons.Filled.PauseCircle, "Download paused", tint = Color.White.copy(alpha = 0.8f), modifier = modifier.size(size).background(Color.Black, CircleShape))
         DownloadBadge.Failed -> Icon(Icons.Filled.Error, "Download failed", tint = Theme.destructive, modifier = modifier.size(size).background(Color.White, CircleShape))
@@ -233,8 +237,8 @@ fun OfflineBanner(retry: () -> Unit, modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     Row(modifier.fillMaxWidth().padding(horizontal = Theme.margin).clip(CircleShape).background(Theme.glass).padding(horizontal = 18.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Icon(Icons.Filled.WifiOff, null, tint = Color.White, modifier = Modifier.size(20.dp))
-        Text("Offline: showing downloads", style = Type.subheadline, fontWeight = FontWeight.SemiBold, color = Color.White, modifier = Modifier.weight(1f))
+        Icon(if (Network.online) Icons.Filled.CloudOff else Icons.Filled.WifiOff, null, tint = Color.White, modifier = Modifier.size(20.dp))
+        Text(offlineBannerText(Network.online), style = Type.subheadline, fontWeight = FontWeight.SemiBold, color = Color.White, modifier = Modifier.weight(1f))
         if (retrying) CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
         else Text("Try Again", style = Type.subheadline, color = Color.White, modifier = Modifier.clickable {
             retrying = true
@@ -261,7 +265,7 @@ fun DownloadCard(record: DownloadRecord, landscape: Boolean, onClick: () -> Unit
                 val d = record.runtime
                 if (p != null && d != null && d > 0) ProgressBar(p / d, Modifier.align(Alignment.BottomCenter).padding(6.dp))
             }
-            DownloadStateIcon(if (record.state == DownloadState.Completed) DownloadBadge.Downloaded else DownloadBadge.Downloading((record.progress * 100).toInt()), modifier = Modifier.padding(5.dp))
+            DownloadStateIcon(if (record.state == DownloadState.Completed) DownloadBadge.Downloaded else (record.badge as? DownloadBadge.Waiting ?: DownloadBadge.Downloading((record.progress * 100).toInt())), modifier = Modifier.padding(5.dp))
             if (menu != null) DropdownMenu(open, { open = false }, containerColor = Theme.sheet) { menu { open = false } }
         }
         Text(if (landscape) record.item?.seriesTitle ?: record.title else record.title, style = Type.caption, fontWeight = FontWeight.Medium, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)

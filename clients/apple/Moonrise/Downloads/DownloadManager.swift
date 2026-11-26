@@ -24,6 +24,8 @@ final class DownloadManager: NSObject {
         case downloaded
         /// Whole percent.
         case downloading(Int)
+        /// Running but not moving (whole percent, and why: "Tailscale is off").
+        case waiting(Int, String)
         case queued, paused, failed
     }
 
@@ -105,6 +107,7 @@ final class DownloadManager: NSObject {
                                                  delegate: self)
 
         refreshBadges()
+        followRouter()
         restoreTasks()
     }
 
@@ -513,20 +516,34 @@ final class DownloadManager: NSObject {
         var seasons: [String: Int] = [:]
         for r in records {
             guard let id = r.itemId else { continue }
-            let badge: Badge = switch r.state {
-            case .completed: .downloaded
-            case .downloading: .downloading(Int(r.progress * 100))
-            case .queued: .queued
-            case .paused: .paused
-            case .failed: .failed
-            }
-            b[id] = badge
+            b[id] = DownloadStatusText.badge(state: r.state, progress: r.progress, waitReason: waitReason(r))
             if let s = r.item?.seriesId { series[s, default: 0] += 1 }
             if let s = r.item?.seasonId { seasons[s, default: 0] += 1 }
         }
         if b != badges { badges = b }
         if series != seriesCounts { seriesCounts = series }
         if seasons != seasonCounts { seasonCounts = seasons }
+    }
+
+    /// Why a running download isn't moving (its server can't be reached, or it waits for Wi-Fi),
+    /// or nil while it is. Read from a view, it follows the router.
+    func waitReason(_ r: DownloadRecord) -> String? {
+        let router = ConnectionRouter.shared
+        let current = SourceStore.shared.server?.id == r.sourceId
+        return DownloadStatusText.waitReason(state: r.state, error: r.error, problem: current ? router.problem : nil,
+                                             serverName: SourceStore.shared.source(r.sourceId)?.name ?? "the server")
+    }
+
+    /// The badges say why a download waits, so they follow the router's problem too.
+    private func followRouter() {
+        withObservationTracking {
+            _ = ConnectionRouter.shared.problem
+        } onChange: {
+            Task { @MainActor [weak self] in
+                self?.refreshBadges()
+                self?.followRouter()
+            }
+        }
     }
 
     fileprivate func progressed(_ id: UUID, written: Int64, total: Int64, fraction: Double? = nil) {

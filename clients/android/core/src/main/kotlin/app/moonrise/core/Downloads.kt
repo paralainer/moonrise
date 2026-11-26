@@ -103,11 +103,11 @@ data class DownloadRecord(
     /** The title as the download saved it, else as much as the record knows of it. */
     val pageItem: Item get() = item ?: Item(id = itemId, kind = "movie", title = title, year = year)
 
-    /** "Downloaded · 480p", "Downloading 34 %": a title page's line under Play. */
+    /** "Downloaded · 480p", "Downloading 34 %", "Download waiting at 34 %: Waiting for the server…": a title page's line under Play. */
     val statusLine: String
         get() = when (state) {
             DownloadState.Completed -> "Downloaded · $downloadLabel"
-            DownloadState.Downloading -> "Downloading ${percent(progress)} %"
+            DownloadState.Downloading -> error?.let { "Download waiting at ${percent(progress)} %: $it" } ?: "Downloading ${percent(progress)} %"
             DownloadState.Queued -> "Download waiting"
             DownloadState.Paused -> "Download paused at ${percent(progress)} %"
             DownloadState.Failed -> "Download failed: ${error.orEmpty()}"
@@ -130,7 +130,8 @@ data class DownloadRecord(
     val badge: DownloadBadge
         get() = when (state) {
             DownloadState.Completed -> DownloadBadge.Downloaded
-            DownloadState.Downloading -> DownloadBadge.Downloading(percent(progress))
+            // Running but not moving (the server can't be reached, or it waits for Wi-Fi).
+            DownloadState.Downloading -> error?.let { DownloadBadge.Waiting(percent(progress), it) } ?: DownloadBadge.Downloading(percent(progress))
             DownloadState.Queued -> DownloadBadge.Queued
             DownloadState.Paused -> DownloadBadge.Paused
             DownloadState.Failed -> DownloadBadge.Failed
@@ -146,10 +147,15 @@ data class DownloadRecord(
 sealed interface DownloadBadge {
     data object Downloaded : DownloadBadge
     data class Downloading(val percent: Int) : DownloadBadge
+    /** Running but not moving, and why. */
+    data class Waiting(val percent: Int, val reason: String) : DownloadBadge
     data object Queued : DownloadBadge
     data object Paused : DownloadBadge
     data object Failed : DownloadBadge
 }
+
+/** Home's banner while the server can't be reached and the downloads are shown. */
+fun offlineBannerText(online: Boolean): String = if (online) "Can't reach the server" else "Offline: showing downloads"
 
 private fun percent(p: Double): Int = (p * 100).toInt()
 

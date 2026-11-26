@@ -67,6 +67,10 @@ at 0.1.0); app changes that shipped together with a server release are listed un
   scrubber. Playing on the title page (Mac and iPad), Download sits right after the title instead of
   alone at the far end of the column. Mac menus: the hovered row is readable (the system accent, no
   longer a white box).
+- iPhone and Android phone: a download that can't reach its server says it is waiting, and why
+  ("Tailscale is off", "Can't reach Den", "You're offline" on iPhone; "Waiting for Wi-Fi…" stays)
+  in its row, on cards and on the title page, instead of "Downloading 19 %". Home's banner says
+  the server can't be reached rather than "Offline" when the device itself is online.
 
 ### Removed
 
