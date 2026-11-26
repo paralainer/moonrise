@@ -50,6 +50,71 @@ class DownloadsTest {
         assertEquals(3, DownloadRules.nextSegment(setOf(0, 1), setOf(2), null, 10))
     }
 
+    /** The segment the download fetches next for a player that read [paths] (in this order). */
+    private fun nextAfter(paths: List<String>, have: Set<Int>, count: Int = 120): Int? {
+        val p = PlayerPosition()
+        paths.forEach { p.asked(it) }
+        return DownloadRules.nextSegment(have, emptySet(), p.from(have), count)
+    }
+
+    @Test
+    fun aSeekPastTheDownloadedPartFetchesTheVideoSegmentThePlayerWaitsForFirst() {
+        // As the iPhone's SegmentedDownloadsTests: the newest request (audio 103) isn't where it plays.
+        val have = (0 until 67).toSet() + 100
+        val asked = listOf("video/100.m4s", "audio/1/100.m4s", "audio/1/101.m4s", "audio/1/102.m4s", "video/101.m4s", "audio/1/103.m4s")
+        assertEquals(101, nextAfter(asked, have))
+    }
+
+    @Test
+    fun afterACutTheSegmentTheVideoStoppedAtComesFirst() {
+        val asked = listOf("video/69.m4s", "audio/1/70.m4s", "audio/1/71.m4s", "video/70.m4s", "audio/1/72.m4s")
+        assertEquals(70, nextAfter(asked, (0 until 70).toSet()))
+    }
+
+    @Test
+    fun aSegmentThePlayerGaveUpOnComesBeforeTheOnesItAskedForAfter() {
+        val have = (0..26).toSet() + 29
+        val asked = listOf("video/26.m4s", "audio/1/27.m4s", "video/27.m4s", "audio/1/28.m4s", "video/28.m4s", "audio/1/29.m4s",
+            "video/29.m4s", "audio/1/30.m4s", "video/30.m4s")
+        assertEquals(27, nextAfter(asked, have))
+        assertEquals(15, nextAfter(listOf("video/10.m4s", "audio/1/12.m4s"), (0 until 15).toSet()))
+        assertEquals(0, nextAfter(listOf("video/init.mp4", "video/index.m3u8"), emptySet()))
+    }
+
+    @Test
+    fun oldRequestsAndTracksNoLongerPlayedDoNotPullTheDownloadBack() {
+        val p = PlayerPosition()
+        p.asked("video/5.m4s", 0)
+        p.asked("video/80.m4s", 200_000)
+        assertEquals(80, p.from((0 until 4).toSet(), 201_000))
+        assertEquals(80, p.from((0..80).toSet(), 201_000))
+        val q = PlayerPosition()
+        q.asked("video/11.m4s", 0)
+        q.asked("video/100.m4s", 3_000)
+        q.asked("audio/1/100.m4s", 3_000)
+        assertEquals(100, q.from((0 until 11).toSet(), 4_000))
+        val r = PlayerPosition()
+        r.asked("audio/1/20.m4s", 0)
+        r.asked("video/80.m4s", 60_000)
+        r.asked("audio/2/81.m4s", 60_000)
+        assertEquals(80, r.segment())
+    }
+
+    @Test
+    fun aPlayerWaitingForASegmentCountsAsWatchingHoweverLong() {
+        val p = PlayerPosition()
+        p.asked("video/70.m4s", 0)
+        assertTrue(p.active(5_000))
+        assertFalse(p.active(60_000))
+        p.waits(true)
+        assertTrue(p.active(60_000))
+        p.waits(false)
+        assertFalse(p.active(60_000))
+        p.waits(false)
+        p.waits(true)
+        assertTrue(p.active(60_000))
+    }
+
     @Test
     fun contiguousAndSeconds() {
         assertEquals(2, DownloadRules.contiguous(setOf(0, 1, 3)))

@@ -27,9 +27,9 @@ final class SegmentedDownloads {
     var onUpdate: ((UUID, (inout DownloadRecord) -> Void) -> Void)?
     var record: ((UUID) -> DownloadRecord?)?
 
-    /// Per download: complete segments (every track), the player's latest segment, the fetch task.
+    /// Per download: complete segments (every track), where the player is, the fetch task.
     private var done: [UUID: IndexSet] = [:]
-    private var playhead: [UUID: (segment: Int, at: Date)] = [:]
+    private var playhead: [UUID: PlayerPosition] = [:]
     private var running: [UUID: Task<Void, Never>] = [:]
     private var runToken: [UUID: UUID] = [:]
     /// Files being fetched (download id + relative path), so the player and the loop share them.
@@ -88,9 +88,38 @@ final class SegmentedDownloads {
         return total
     }
 
-    /// The local server served (or was asked for) segment `n`: download from there on.
-    func playerAsked(_ id: UUID, segment n: Int) {
-        playhead[id] = (n, Date())
+    /// The segments playback at `seconds` needs next are on the device (every track): the one
+    /// there and, near its end, the one after.
+    func hasSegments(_ rec: DownloadRecord, at seconds: Double) -> Bool {
+        guard let text = try? String(contentsOf: hlsDirectory(rec.id).appendingPathComponent("video/index.m3u8"), encoding: .utf8) else { return false }
+        let have = completeSegments(rec)
+        return Self.segmentsNeeded(playlist: text, at: seconds).allSatisfy { have.contains($0) }
+    }
+
+    /// The segments of a media playlist that playback at `seconds` needs next: the one there, and
+    /// the next one too within a second of its end (where a player stalls waiting for it).
+    nonisolated static func segmentsNeeded(playlist: String, at seconds: Double) -> [Int] {
+        let durations = playlist.split(separator: "\n").filter { $0.hasPrefix("#EXTINF:") }
+            .map { Double($0.dropFirst(8).split(separator: ",").first ?? "") ?? 0 }
+        var start = 0.0
+        for (n, d) in durations.enumerated() {
+            if seconds < start + d {
+                return seconds > start + d - 1 && n + 1 < durations.count ? [n, n + 1] : [n]
+            }
+            start += d
+        }
+        return []
+    }
+
+    /// The local server served (or was asked for) a segment file ("video/12.m4s"): download from
+    /// there on.
+    func playerAsked(_ id: UUID, path: String) {
+        playhead[id, default: PlayerPosition()].asked(path)
+    }
+
+    /// The player waits for a file that isn't on the device yet (`fetchNow`).
+    private func playerWaits(_ id: UUID, _ waiting: Bool) {
+        playhead[id, default: PlayerPosition()].waits(waiting)
     }
 
     func forget(_ id: UUID) {
@@ -233,18 +262,85 @@ final class SegmentedDownloads {
         }
     }
 
-    /// The player asked for a segment of this download lately.
+    /// Someone watches this download: the player asked for a segment lately, or waits for one.
     private func playerActive(_ id: UUID) -> Bool {
-        playhead[id].map { Date().timeIntervalSince($0.at) < 20 } ?? false
+        playhead[id]?.active() ?? false
     }
 
-    /// The next segment to fetch: from where the viewer is, then from the start.
     private func nextSegment(_ id: UUID, _ rec: DownloadRecord, count: Int, claimed: IndexSet) -> Int? {
         let have = completeSegments(rec).union(claimed)
-        let from = min(playhead[id].map { $0.segment } ?? 0, count)
+        return Self.nextSegment(have: have, count: count, from: playhead[id]?.from(have: have) ?? 0)
+    }
+
+    /// The next segment to fetch: the first one missing from `from` (where the viewer is) on,
+    /// then from the start.
+    nonisolated static func nextSegment(have: IndexSet, count: Int, from: Int) -> Int? {
+        let from = max(0, min(from, count))
         for n in from..<count where !have.contains(n) { return n }
         for n in 0..<from where !have.contains(n) { return n }
         return nil
+    }
+
+    /// Where the player is in a download, from the segment files the local server is asked for.
+    ///
+    /// AVPlayer asks for each track's segments on its own, and the audio runs a few segments ahead
+    /// of the video. Where it plays is the track furthest behind: the latest segment of each track,
+    /// the lowest of those. (Taking the newest request of any track instead made the download
+    /// start past the video segment the player was waiting for, and fetch that one last.)
+    /// A track not asked for within `trackGone` of the newest request is one no longer played
+    /// (another audio track was picked).
+    ///
+    /// A segment it asked for lately that still isn't here comes first of all: AVPlayer can give up
+    /// on a segment (the link went while it waited), go on asking for the next ones, and then
+    /// stall at the one it skipped. Only one a few segments behind where it plays, though: one
+    /// left behind by a seek ahead isn't wanted any more.
+    ///
+    /// The player counts as watching while a request waits for a file (`fetchNow`), however long:
+    /// a player waiting for a segment asks for nothing else, and the download must not take the
+    /// link from that request then (AVPlayer gives up on a request after several seconds, and
+    /// asks for the segment again only when playback restarts).
+    struct PlayerPosition {
+        static let recent: TimeInterval = 20
+        static let trackGone: TimeInterval = 30
+        static let wanted: TimeInterval = 90
+        static let behind = 5
+
+        private var latest: [String: (segment: Int, at: Date)] = [:]
+        /// The segments asked for within `wanted`, and when.
+        private var asks: [Int: Date] = [:]
+        private var waiting = 0
+
+        /// "video/12.m4s" or "audio/1/12.m4s" was asked for.
+        mutating func asked(_ path: String, at now: Date = Date()) {
+            guard let n = SegmentedDownloads.segment(path) else { return }
+            latest[(path as NSString).deletingLastPathComponent] = (n, now)
+            asks = asks.filter { now.timeIntervalSince($0.value) <= Self.wanted }
+            asks[n] = now
+        }
+
+        /// Where the download goes on from: the first segment asked for lately, near where the
+        /// player plays, that isn't in `have`; else where the player plays (`segment`).
+        func from(have: IndexSet, at now: Date = Date()) -> Int? {
+            guard let at = segment() else { return nil }
+            let missing = asks.filter { $0.key >= at - Self.behind && now.timeIntervalSince($0.value) <= Self.wanted && !have.contains($0.key) }.keys
+            return missing.min() ?? at
+        }
+
+        mutating func waits(_ start: Bool) {
+            waiting = max(0, waiting + (start ? 1 : -1))
+        }
+
+        /// The segment the player plays (the track furthest behind), nil before any request.
+        func segment() -> Int? {
+            guard let newest = latest.values.map(\.at).max() else { return nil }
+            return latest.values.filter { newest.timeIntervalSince($0.at) <= Self.trackGone }.map(\.segment).min()
+        }
+
+        func active(at now: Date = Date()) -> Bool {
+            if waiting > 0 { return true }
+            guard let newest = latest.values.map(\.at).max() else { return false }
+            return now.timeIntervalSince(newest) < Self.recent
+        }
     }
 
     /// Video, then each audio track: the directories of the set's tracks.
@@ -412,6 +508,8 @@ final class SegmentedDownloads {
     /// A file the player asked for that isn't on the device: fetch it now when the server can be
     /// reached; otherwise wait (up to `wait`) for it to arrive. True when it is there.
     func fetchNow(_ id: UUID, _ path: String, wait: TimeInterval, abandoned: @Sendable () -> Bool = { false }) async -> Bool {
+        playerWaits(id, true)
+        defer { playerWaits(id, false) }
         let deadline = Date().addingTimeInterval(wait)
         while Date() < deadline, !abandoned() {
             if exists(id, path) { return true }

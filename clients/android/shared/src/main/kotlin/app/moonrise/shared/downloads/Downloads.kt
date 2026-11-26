@@ -14,6 +14,7 @@ import app.moonrise.core.MediaFile
 import app.moonrise.core.MoonriseApi
 import app.moonrise.core.MoonriseHttpException
 import app.moonrise.core.OfflineSet
+import app.moonrise.core.PlayerPosition
 import app.moonrise.core.Quality
 import app.moonrise.core.SegmentService
 import app.moonrise.core.LocalSubtitle
@@ -72,7 +73,7 @@ object Downloads {
     private val saver = Dispatchers.IO.limitedParallelism(1)
     private val jobs = HashMap<String, Job>()
     private val done = ConcurrentHashMap<String, MutableSet<Int>>()
-    private val playhead = ConcurrentHashMap<String, Pair<Int, Long>>()
+    private val playhead = ConcurrentHashMap<String, PlayerPosition>()
     private val inflight = ConcurrentHashMap<String, Deferred<Unit>>()
     private val bytes = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
     private val lastSave = ConcurrentHashMap<String, Long>()
@@ -222,12 +223,12 @@ object Downloads {
                     while (isActive) {
                         // While someone watches it, one at a time: the player's own requests come first.
                         if (worker > 0 && playerActive(id)) {
-                            if (synchronized(claimed) { DownloadRules.nextSegment(complete(rec), claimed, playhead[id]?.first, count) } == null) break
+                            if (synchronized(claimed) { DownloadRules.nextSegment(complete(rec), claimed, from(id, rec), count) } == null) break
                             delay(500)
                             continue
                         }
                         val n = synchronized(claimed) {
-                            DownloadRules.nextSegment(complete(rec), claimed, playhead[id]?.first, count)?.also { claimed += it }
+                            DownloadRules.nextSegment(complete(rec), claimed, from(id, rec), count)?.also { claimed += it }
                         } ?: break
                         for (t in tracks) if (!exists(id, "$t/$n.m4s")) fetch(rec, api, "$t/$n.m4s")
                         segmentComplete(id, n, count)
@@ -245,7 +246,10 @@ object Downloads {
         }
     }
 
-    private fun playerActive(id: String): Boolean = playhead[id]?.let { System.currentTimeMillis() - it.second < 20_000 } == true
+    private fun playerActive(id: String): Boolean = playhead[id]?.active() == true
+
+    /** Where the download goes on from (`PlayerPosition.from`). */
+    private fun from(id: String, rec: DownloadRecord): Int? = playhead[id]?.from(complete(rec).toSet())
 
     /** Complete segments of a download (every track has them), read from its folder the first time. */
     fun complete(rec: DownloadRecord): Set<Int> = done.getOrPut(rec.id) {
@@ -277,7 +281,7 @@ object Downloads {
 
     /** The player reads this file of the download; a segment moves the download there. */
     fun playerAsked(id: String, relative: String) {
-        DownloadRules.segment(relative)?.let { playhead[id] = it to System.currentTimeMillis() }
+        if (DownloadRules.segment(relative) != null) playhead.getOrPut(id) { PlayerPosition() }.asked(relative)
     }
 
     private suspend fun describe(rec: DownloadRecord, api: MoonriseApi) {
@@ -356,9 +360,15 @@ object Downloads {
      * player's loading thread.
      */
     fun fetchNow(id: String, relative: String, waitSeconds: Int): Boolean = runBlocking {
+        val position = playhead.getOrPut(id) { PlayerPosition() }
+        position.waits(true)
+        try { fetchNowWaiting(id, relative, waitSeconds) } finally { position.waits(false) }
+    }
+
+    private suspend fun fetchNowWaiting(id: String, relative: String, waitSeconds: Int): Boolean {
         val deadline = System.currentTimeMillis() + waitSeconds * 1000L
         while (System.currentTimeMillis() < deadline) {
-            if (exists(id, relative)) return@runBlocking true
+            if (exists(id, relative)) return true
             val rec = record(id)
             if (rec != null && rec.hasPlaylist && reachable(rec)) {
                 val api = Session.api
@@ -369,13 +379,13 @@ object Downloads {
                             val count = rec.segmentCount
                             if (count != null && DownloadRules.tracks(rec).all { exists(id, "$it/$n.m4s") }) segmentComplete(id, n, count)
                         }
-                        return@runBlocking true
+                        return true
                     }
                 }
             }
             delay(700)
         }
-        exists(id, relative)
+        return exists(id, relative)
     }
 
     // ---------------------------------------------------------------- what's saved with it
