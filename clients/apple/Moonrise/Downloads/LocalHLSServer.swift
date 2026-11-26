@@ -133,8 +133,8 @@ final class LocalHLSServer: @unchecked Sendable {
             return respond(c, status: 200, type: "application/vnd.apple.mpegurl", body: Data(text.utf8), method: method)
         }
 
-        if let n = SegmentedDownloads.segment(path) {
-            await MainActor.run { DownloadManager.shared.segmented.playerAsked(id, segment: n) }
+        if SegmentedDownloads.segment(path) != nil {
+            await MainActor.run { DownloadManager.shared.segmented.playerAsked(id, path: path) }
         }
         var there = FileManager.default.fileExists(atPath: file.path)
         if !there {

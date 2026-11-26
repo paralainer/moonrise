@@ -87,7 +87,11 @@ extension PlayerModel {
                 #if DEBUG
                 self.mark(String(format: "local stall %d at %.1f", tries, t))
                 #endif
-                if tries < 4 {
+                // The segments it waits for are on the device now: play again at once. AVPlayer
+                // gives up on a request that waited (the link went, or the server was slow) and
+                // asks for that segment again only on a new start, so nudging it doesn't help then.
+                let there = DownloadManager.shared.record(rec.id).map { DownloadManager.shared.segmented.hasSegments($0, at: t) } ?? false
+                if tries < 4 && !there {
                     engine.seek(to: t)
                 } else if let fresh = DownloadManager.shared.record(rec.id) {
                     self.stallTries = 0

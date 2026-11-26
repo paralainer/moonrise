@@ -240,7 +240,7 @@ object DownloadRules {
 
     /** The next segment to fetch: from where the viewer is, then from the start. */
     fun nextSegment(done: Set<Int>, claimed: Set<Int>, from: Int?, count: Int): Int? {
-        val start = minOf(from ?: 0, count)
+        val start = (from ?: 0).coerceIn(0, count)
         for (n in start until count) if (n !in done && n !in claimed) return n
         for (n in 0 until start) if (n !in done && n !in claimed) return n
         return null
@@ -567,5 +567,71 @@ data class LocalReport(
 
         fun listJson(r: List<LocalReport>): String = MoonriseApi.json.encodeToString(ListSerializer(serializer()), r)
         fun listFrom(s: String): List<LocalReport>? = runCatching { MoonriseApi.json.decodeFromString(ListSerializer(serializer()), s) }.getOrNull()
+    }
+}
+
+/**
+ * Where the player is in a download, from the segment files it reads (as the iPhone's
+ * `SegmentedDownloads.PlayerPosition`; times in milliseconds).
+ *
+ * The player loads each track's segments on its own, and the audio runs a few segments ahead of
+ * the video. Where it plays is the track furthest behind: the latest segment of each track, the
+ * lowest of those. (Taking the newest request of any track instead made the download start past
+ * the video segment the player was waiting for, and fetch that one last.) A track not read within
+ * [TRACK_GONE] of the newest request is one no longer played (another audio track was picked).
+ *
+ * A segment asked for lately that still isn't here comes first of all, when it is at most [BEHIND]
+ * segments behind where the player plays: a player can give up on a segment (the link went while
+ * it waited), go on to the next ones and then stall at the one it skipped; one left behind by a
+ * seek ahead isn't wanted any more.
+ *
+ * The player counts as watching while it waits for a file, however long: a player waiting for a
+ * segment asks for nothing else, and the download must not take the link from it then.
+ */
+class PlayerPosition {
+    private val latest = HashMap<String, Pair<Int, Long>>()
+    private val asks = HashMap<Int, Long>()
+    private var waiting = 0
+
+    /** "video/12.m4s" or "audio/1/12.m4s" was read. */
+    @Synchronized
+    fun asked(path: String, now: Long = System.currentTimeMillis()) {
+        val n = DownloadRules.segment(path) ?: return
+        latest[path.substringBeforeLast('/', "")] = n to now
+        asks.entries.removeAll { now - it.value > WANTED }
+        asks[n] = now
+    }
+
+    @Synchronized
+    fun waits(start: Boolean) {
+        waiting = maxOf(0, waiting + if (start) 1 else -1)
+    }
+
+    /** The segment the player plays (the track furthest behind), null before any request. */
+    @Synchronized
+    fun segment(): Int? {
+        val newest = latest.values.maxOfOrNull { it.second } ?: return null
+        return latest.values.filter { newest - it.second <= TRACK_GONE }.minOfOrNull { it.first }
+    }
+
+    /** Where the download goes on from: the first segment asked for lately, near where the player plays, not in [have]; else [segment]. */
+    @Synchronized
+    fun from(have: Set<Int>, now: Long = System.currentTimeMillis()): Int? {
+        val at = segment() ?: return null
+        return asks.filter { it.key >= at - BEHIND && now - it.value <= WANTED && it.key !in have }.keys.minOrNull() ?: at
+    }
+
+    @Synchronized
+    fun active(now: Long = System.currentTimeMillis()): Boolean {
+        if (waiting > 0) return true
+        val newest = latest.values.maxOfOrNull { it.second } ?: return false
+        return now - newest < RECENT
+    }
+
+    companion object {
+        const val RECENT = 20_000L
+        const val TRACK_GONE = 30_000L
+        const val WANTED = 90_000L
+        const val BEHIND = 5
     }
 }
