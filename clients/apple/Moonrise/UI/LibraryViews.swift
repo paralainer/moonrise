@@ -256,6 +256,8 @@ struct LibraryBrowser: View {
     @State var facets: LibraryFacets?
     @State var loading = false
     @State private var error: String?
+    /// Bumped to load again after a failed load: Try Again, or the route moved meanwhile.
+    @State private var attempt = 0
     @State private var width: CGFloat = 0
     /// Where to scroll: a letter jump to its first title, a filter change back to the top. (Not a
     /// tracked scroll position: one keeps the title it last saw in place when the list changes,
@@ -325,6 +327,7 @@ struct LibraryBrowser: View {
         var filter: LibraryFilter
         var offline: Bool
         var downloads: Int
+        var attempt: Int
     }
 
     var body: some View {
@@ -432,8 +435,12 @@ struct LibraryBrowser: View {
             }
         }
         #endif
-        .task(id: LoadKey(filter: filter, offline: offline, downloads: manager.records.filter(\.isPlayable).count)) {
+        .task(id: LoadKey(filter: filter, offline: offline, downloads: manager.records.filter(\.isPlayable).count, attempt: attempt)) {
             await reload()
+        }
+        // A load failed and the router has since found another way to the server: load over it.
+        .onChange(of: router.route) { old, new in
+            if error != nil, old != new, router.isReachable { attempt += 1 }
         }
         .onChange(of: filter) { _, f in
             if isRoot { f.save(for: library.id) }
@@ -632,7 +639,19 @@ struct LibraryBrowser: View {
             }
             .padding(.leading, metrics.hPadding)
             if loading && items.isEmpty { ProgressView().frame(maxWidth: .infinity).padding() }
-            if let error { Text(error).font(.footnote).foregroundStyle(.red).padding(.horizontal, metrics.hPadding) }
+            if let error {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(error).font(.footnote).foregroundStyle(.red)
+                    Button("Try Again") { attempt += 1 }
+                        #if os(tvOS)
+                        .tvGlass()
+                        #else
+                        .buttonStyle(.glass)
+                        #endif
+                }
+                .frame(maxWidth: .infinity, alignment: .leading) // under the count line
+                .padding(.horizontal, metrics.hPadding)
+            }
         }
     }
 

@@ -53,10 +53,12 @@ final class ConnectionRouter {
     @ObservationIgnored private var started = false
     @ObservationIgnored private var retryTask: Task<Void, Never>?
     @ObservationIgnored private var lastPath: TailnetNudge.Path?
+    @ObservationIgnored private var lastRequestCheck = Date.distantPast
 
     #if DEBUG
-    /// Test seam: stands in for the embedded node's tailnet route (`RouteChangeTests`).
-    @ObservationIgnored var debugTailnet: URL?
+    /// Test seam: stands in for the embedded node's tailnet route (`RouteChangeTests`,
+    /// `MOONRISE_FAKE_TAILNET`).
+    @ObservationIgnored var debugTailnet: URL? = DebugSeams.launch.fakeTailnet
     /// Test seam: what a path update does.
     func debugNetworkChanged() { scheduleRefresh() }
     #endif
@@ -120,6 +122,17 @@ final class ConnectionRouter {
             guard !Task.isCancelled else { return }
             await refresh()
         }
+    }
+
+    /// A request to the server failed: look again if it couldn't get through (`RequestRouteCheck`).
+    func requestFailed(_ error: Error) {
+        let now = Date()
+        guard RequestRouteCheck.shouldCheck(error, route: route, sinceLastCheck: now.timeIntervalSince(lastRequestCheck)) else { return }
+        lastRequestCheck = now
+        #if DEBUG
+        fputs("MoonriseRouter: a request failed on \(route?.label ?? "-") (\((error as? URLError)?.code.rawValue ?? 0)): checking again\n", stderr)
+        #endif
+        Task { await refresh() }
     }
 
     /// Await the current routing pass so screens don't load against a dead address.

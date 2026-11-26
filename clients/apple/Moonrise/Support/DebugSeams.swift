@@ -60,6 +60,8 @@ import Foundation
 /// - `MOONRISE_LOSSLESS=1`: pretend the audio output is multichannel [LOSSLESS].
 /// - `MOONRISE_FORCE_CELLULAR=1`: pretend the network is cellular.
 /// - `MOONRISE_FORCE_TAILNET=1`: treat the home network as unreachable [AWAY].
+/// - `MOONRISE_FAKE_TAILNET=<host:port>`: stand in for the tailnet route with that address, no
+///   Tailscale needed (a second gate channel in front of the same server) [FAKE_TAILNET].
 /// - `MOONRISE_TS_AUTHKEY=<auth key>`: sign the embedded Tailscale node in with that key and turn it
 ///   on (`sim.sh` mints an ephemeral one for AWAY=1).
 ///
@@ -103,6 +105,7 @@ struct DebugSeams {
         case deleteDownload = "MOONRISE_DELETE_DOWNLOAD"
         case dolbyVision = "MOONRISE_DV", lossless = "MOONRISE_LOSSLESS"
         case forceCellular = "MOONRISE_FORCE_CELLULAR", forceTailnet = "MOONRISE_FORCE_TAILNET"
+        case fakeTailnet = "MOONRISE_FAKE_TAILNET"
         case tailscaleAuthKey = "MOONRISE_TS_AUTHKEY"
     }
 
@@ -185,6 +188,7 @@ struct DebugSeams {
     var lossless: Bool { flag(.lossless) }
     var forceCellular: Bool { flag(.forceCellular) }
     var forceTailnet: Bool { flag(.forceTailnet) }
+    var fakeTailnet: URL? { text(.fakeTailnet).flatMap(MoonriseClient.normalize) }
     var tailscaleAuthKey: String? { text(.tailscaleAuthKey) }
 }
 #endif
