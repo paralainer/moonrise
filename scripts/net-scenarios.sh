@@ -20,6 +20,14 @@
 #                   rate during a run (default 600k, so a download takes a few minutes)
 #   OUT             where each scenario's timeline goes (default /tmp/moonrise-net-results)
 #
+# Setup example (a throwaway server on 127.0.0.1:18097 of a machine at 192.168.1.10, whose
+# tailnet address is 100.64.0.10; the app signs in to the gate, not to the server):
+#   python3 scripts/netgate.py serve --upstream 127.0.0.1:18097 --listen lan=192.168.1.10:19097 \
+#     --listen tailnet=100.64.0.10:19097 --control 127.0.0.1:19098 &
+#   export GATE="python3 scripts/netgate.py ctl --control 127.0.0.1:19098" MOONRISE_URL=http://192.168.1.10:19097
+#   DEV=1 scripts/build.sh sim && DEV=1 scripts/sim-net.sh install
+#   DEV=1 ITEM=<film id> SHORT="<3 episode ids>" scripts/net-scenarios.sh run D05
+#
 # Each scenario prints "<ID> PASS|FAIL <why>" and writes OUT/<ID>.log: the index samples, the
 # gate's settings and the app's download and route log lines. Exit status: the number of FAILs.
 set -uo pipefail
